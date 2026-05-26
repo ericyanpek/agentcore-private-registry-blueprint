@@ -1,339 +1,280 @@
 # agentcore-private-registry-blueprint
 
-> A working blueprint for running a **private, governed AI resource
-> registry on AWS** — built on Amazon Bedrock AgentCore Registry +
-> AWS CodeArtifact.
->
-> **Day 1**: ships a verified end-to-end **Skills** demo (one-click
-> CDK + a real skill that installs into Claude Code).
->
-> **Day N**: the same registry — and most of the same patterns —
-> hold MCP servers, A2A agents, knowledge bases, Lambda tools,
-> guardrails, Cedar policies, eval datasets, and any custom resource
-> your org wants to govern. See
-> [docs/07-extending-to-other-resources.md](docs/07-extending-to-other-resources.md).
+> 🌐 **中文版（本页）** · [English README](./README.en.md)
 
-**Status**: Preview-stage reference (2026-05). AWS Agent Registry is in public preview; APIs may change.
+> 一个可运行的蓝图：在 AWS 上搭建**企业私有、可治理的 AI 资源注册中心** —— 基于 Amazon Bedrock AgentCore Registry + AWS CodeArtifact。
+>
+> **Day 1**：交付一个端到端验证过的 **Skills 演示**（一键 CDK + 一个真实 skill，可装到 Claude Code）。
+>
+> **Day N**：同一个 Registry——用同一套模式——还能管理 MCP servers、A2A agents、知识库、Lambda 工具、Bedrock Guardrails、Cedar 策略包、评测数据集，以及任何你想让组织治理的自定义资源。详见
+> [docs/07-extending-to-other-resources.md](docs/07-extending-to-other-resources.md)。
+
+**状态**：Preview 阶段参考实现（2026-05）。AWS Agent Registry 处于 public preview，API 可能变更。
 
 ---
 
-## Why this exists
+## 为什么要这个仓库
 
-This blueprint exists at the intersection of two AWS shipments:
+这个蓝图诞生于 AWS 近期两条产品线的交汇点：
 
-- **Bedrock AgentCore Registry** (preview, 2026-04) — a governed,
-  searchable catalog for **agents, MCP servers/tools, skills, and
-  any custom resource** an org wants to publish privately
-- **CodeArtifact** — the obvious-but-rarely-paired private artifact
-  backend for the things in that catalog
+- **Bedrock AgentCore Registry**（preview，2026-04）—— 一个可治理、可搜索的目录服务，**承载 agents、MCP servers/tools、skills，以及任何你想私有化分发的自定义资源**
+- **CodeArtifact** —— 与之天然搭配、却很少被联想到一起的私有制品仓库
 
-Together they solve a problem most enterprises haven't articulated yet
-but will hit by mid-2026: **AI resources have become enterprise IP,
-and they need the same governance you give code, infrastructure,
-and data**.
+这两者合在一起，解决了大多数企业还没明确表达、但 2026 年中前必然撞上的问题：**AI 资源已经成为企业 IP，需要和代码、基础设施、数据同等级别的治理**。
 
-The Day-1 demo focuses on **Skills** because that's where the privacy
-case is sharpest:
+Day-1 演示之所以聚焦 **Skills**，是因为它把"私密性"这件事的论点拉得最尖锐：
 
-In 2025-2026, **Agent Skills became how teams encode their SOPs**:
-financial analysis playbooks, incident triage runbooks, data discovery
-methodologies, compliance review checklists. A skill is no longer a
-prompt — it's a piece of operational IP that an AI agent will execute
-without further human translation.
+2025-2026 年间，**Agent Skills 已经成为团队沉淀 SOP 的载体**：财务分析手册、事故排查流程、数据探索方法、合规审查清单。Skill 不再只是 prompt——它是 AI agent 能直接执行的运营 IP，**不需要再让人翻译一遍**。
 
-That makes "where do skills live and who can publish them" a real
-governance question:
+这就把"skill 放哪里、谁能发布"变成了实打实的治理问题：
 
-- **Privacy** — a financial-analysis skill embeds internal margin
-  conventions, customer tiers, pricing rules. **It cannot live on a
-  public marketplace or in a public GitHub.**
-- **Compliance** — MAS/HKMA/PBOC, HIPAA, EU AI Act all treat
-  agent-executable instructions as auditable artifacts. You need
-  versioning, approval trails, immutable history.
-- **Discoverability at scale** — once an org has 50+ skills, search
-  and trust signals matter more than git URLs in a Confluence page.
+- **隐私性** —— 一个财务分析 skill 嵌入了内部毛利口径、客户分级、定价规则。**它不能放在公网 marketplace 或公网 GitHub 上**。
+- **合规** —— MAS / HKMA / PBOC、HIPAA、欧盟 AI Act 都把 agent 可执行指令视为可审计的产物。需要版本化、审批留痕、不可变历史。
+- **规模化的可发现性** —— 当组织里有 50+ skill 时，搜索和信任信号比 Confluence 页面里的 git URL 更重要。
 
-Public skill marketplaces (Anthropic's, npm-style hubs like
-`skills.sh`) and self-hosted hobbyist projects (e.g., iflytek's
-SkillHub) **don't fit the enterprise constraint**. AWS shipped
-Bedrock AgentCore Registry in 2026-04 specifically for this gap.
+公网 skill 市场（Anthropic 的、`skills.sh` 这种 npm 风格）和自托管玩家项目（如 iflytek SkillHub）**都不满足企业约束**。AWS 在 2026-04 上线 Bedrock AgentCore Registry 正是为补这个缺口。
 
-This repo is the missing piece: **how to actually wire AWS Agent
-Registry + CodeArtifact into a working private skill distribution
-pipeline**, with one-click infrastructure and a demo skill you can
-verify against your own Claude Code install.
+本仓库提供缺失的那块拼图：**怎样把 AWS Agent Registry + CodeArtifact 真正接成一个可工作的私有 skill 分发流水线**——含一键基础设施和你可以在自家 Claude Code 上验证的演示 skill。
 
-[→ Full rationale: `docs/01-why-private-skills.md`](docs/01-why-private-skills.md)
+[→ 完整论证：`docs/01-why-private-skills.md`](docs/01-why-private-skills.md)
 
-## What's in this blueprint
+## 蓝图覆盖范围
 
-The Day-1 scope (verified end-to-end):
+Day-1 范围（端到端已验证）：
 
-| Concern | AWS service used | What this repo provides |
+| 关注点 | 用到的 AWS 服务 | 本仓库提供 |
 |---|---|---|
-| **Discovery + governance** | Bedrock AgentCore Registry | CDK that creates the registry; Python scripts that publish/approve records; reference `skillDefinition` schema |
-| **Artifact storage** | CodeArtifact (PyPI repo) | CDK that creates domain + repo; `pyproject.toml` template for text-only skills |
-| **Skill format** | (the SKILL.md spec) | One real example: `aws-cost-anomaly-triage` with frontmatter + 6 resource files |
-| **Activation** | (consumer-side) | `postinstall.py` console script + `04_consume_skill.py` showing search → install → activate end-to-end |
-| **One-click deploy** | AWS CDK (TypeScript) | `cdk deploy` provisions everything in ~3 minutes |
-| **Auth** | IAM today, JWT/OIDC documented | Working IAM auth in scripts; OAuth/JWT path documented as Phase 2 |
+| **发现 + 治理** | Bedrock AgentCore Registry | 创建 registry 的 CDK；发布/审批 record 的 Python 脚本；`skillDefinition` 参考 schema |
+| **制品存储** | CodeArtifact（PyPI 仓库） | 创建 domain + repo 的 CDK；纯文本 skill 的 `pyproject.toml` 模板 |
+| **Skill 格式** | （SKILL.md 规范） | 一个真实示例：`aws-cost-anomaly-triage`，含 frontmatter + 6 份资源文件 |
+| **激活** | （消费侧） | `postinstall.py` 控制台脚本 + `04_consume_skill.py` 演示完整 search → install → activate |
+| **一键部署** | AWS CDK（TypeScript） | `cdk deploy` 大约 3 分钟全部就位 |
+| **认证** | 现用 IAM，JWT/OIDC 已记入文档 | 脚本里 IAM 已能跑；OAuth/JWT 路径作为 Phase 2 |
 
-The Day-N scope (documented, ready to extend):
+Day-N 范围（已记入文档，可扩展）：
 
-The same registry holds four `descriptorType`s. This blueprint demos
-`AGENT_SKILLS`; the others are equally first-class:
+同一个 Registry 承载 4 种 `descriptorType`。本蓝图演示的是 `AGENT_SKILLS`，其余三种地位完全平等：
 
-| `descriptorType` | What it catalogs | Schema |
+| `descriptorType` | 装什么 | Schema |
 |---|---|---|
-| `AGENT_SKILLS` | Reusable SOPs (this demo) | SKILL.md + skillDefinition v0.1.0 |
-| `MCP` | MCP servers / tools | MCP server.json (open spec) |
+| `AGENT_SKILLS` | 可复用 SOP（本演示） | SKILL.md + skillDefinition v0.1.0 |
+| `MCP` | MCP servers / tools | MCP server.json（开放规范） |
 | `A2A` | Agents | Google A2A Agent Card |
-| `CUSTOM` | Anything else (KBs, Lambda tools, guardrails, Cedar policies, SFN state machines, eval sets, schemas, …) | You define the JSON shape |
+| `CUSTOM` | 其他一切（KBs、Lambda 工具、Guardrails、Cedar 策略、SFN 状态机、评测集、schema 等） | 你自定义的 JSON 形态 |
 
-A walked-through "customer care" example registering 18 resources
-across all four types lives in
-[`docs/07-extending-to-other-resources.md`](docs/07-extending-to-other-resources.md).
+`docs/07-extending-to-other-resources.md` 里有一个走通过的"客服中心"完整示例——一个 registry 注册 18 个资源，**横跨全部四种 `descriptorType`**。
 
-## What you can do with it in 10 minutes
+## 10 分钟跑通
 
 ```bash
-# 1. Deploy infra (CodeArtifact domain + repo, Agent Registry)
+# 1. 部署基础设施（CodeArtifact domain + repo，Agent Registry）
 cd cdk && npm install && npx cdk deploy --all
 
-# 2. Build & publish the example skill to CodeArtifact
+# 2. 构建并发布示例 skill 到 CodeArtifact
 cd ../skill-package && python3 -m build
 aws codeartifact login --tool twine --domain skills-demo --repository skills-prod --region us-east-1
 python3 -m twine upload --repository codeartifact dist/*
 
-# 3. Register, approve, and verify end-to-end discovery
+# 3. 注册、审批、验证端到端发现
 cd ../scripts
 python3 02_register_skill.py
 python3 03_approve_skill.py
-sleep 30   # the search index takes 15-30s to pick up a freshly approved record
+sleep 30   # 搜索索引在审批通过后 15-30 秒才会被命中
 python3 04_consume_skill.py
 ```
 
-After step 3, `~/.claude/skills/aws-cost-anomaly-triage/` exists and
-Claude Code automatically lists the skill alongside its built-ins.
+跑完第 3 步，`~/.claude/skills/aws-cost-anomaly-triage/` 就生成了，**Claude Code 在下一个 prompt 自动把这个 skill 列进可用清单**——和官方内置 skill 平级。
 
-## Architecture (1-minute version)
+## 架构（一分钟版）
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Author / CI                                              │
-│  pyproject.toml + SKILL.md + resources                    │
+│  作者 / CI                                                │
+│  pyproject.toml + SKILL.md + 资源文件                      │
 └─────────┬─────────────────────────────────────┬───────────┘
           │ twine upload                        │ create_registry_record
           ▼                                     ▼
 ┌────────────────────────┐         ┌────────────────────────┐
 │ CodeArtifact (PyPI)    │         │ Bedrock AgentCore      │
-│ Private artifact store │◀────────│ Registry               │
-│ KMS at-rest, IAM auth  │ packages│ Metadata + governance  │
+│ 私有制品仓库           │◀────────│ Registry               │
+│ KMS 静态加密、IAM 鉴权 │packages │ Metadata + 治理         │
 └────────────────────────┘         └────────────────────────┘
           ▲                                     ▲
           │ pip install                         │ search_registry_records
-          │                                     │   (boto3 OR MCP endpoint)
+          │                                     │   (boto3 或 MCP endpoint)
           └────────────┬────────────────────────┘
                        ▼
-            Consumer: developer / agent
+            消费方：开发者 / agent
             ─→ install-aws-cost-anomaly-triage
-            ─→ ~/.claude/skills/<name>/  (immediately discoverable)
+            ─→ ~/.claude/skills/<name>/  (Claude Code 立即可见)
 ```
 
-[→ Full architecture: `docs/02-architecture.md`](docs/02-architecture.md)
+[→ 完整架构：`docs/02-architecture.md`](docs/02-architecture.md)
 
-## Mental model — what Registry is and isn't
+## 心智模型 —— Registry 是什么、不是什么
 
-The single most common misconception about AWS Agent Registry is
-that it's a "skill download service". It isn't. Get this right and
-the rest of the design follows.
+关于 AWS Agent Registry 最常见的一个误解：把它当成"skill 下载服务"。**它不是。** 把这一点想清楚，后面的设计就顺了。
 
-**Registry is a discovery + governance service for metadata. It does
-not host artifacts and it does not install anything.**
+**Registry 是一个 metadata 的发现 + 治理服务。它不托管制品，也不安装任何东西。**
 
-The MCP endpoint a registry exposes contains exactly **one** tool:
+每个 registry 暴露的 MCP 端点上**只有一个**工具：
 
 ```
 search_registry_records(searchQuery, maxResults, filter)
 ```
 
-No `install`, no `download`, no `activate`. Intentional. Compare to
-how npm works:
+没有 `install`，没有 `download`，没有 `activate`。这是**故意的**。和 npm 的角色对照一下：
 
-| | npm ecosystem | Agent Registry ecosystem |
+| | npm 生态 | Agent Registry 生态 |
 |---|---|---|
-| Search service | `registry.npmjs.org` | Agent Registry MCP endpoint |
-| Search command | `npm search` | `search_registry_records` |
-| Install command | `npm install` (CLI, client-side) | `pip install` (run by Claude Code's Bash tool) |
-| Local install dir | `~/.node_modules/` | `~/.claude/skills/` |
-| Auto-load installed | Node `require()` resolution | Claude Code scans `~/.claude/skills/` on every prompt |
+| 搜索服务 | `registry.npmjs.org` | Agent Registry MCP endpoint |
+| 搜索命令 | `npm search` | `search_registry_records` |
+| 安装命令 | `npm install`（CLI 在客户端跑） | `pip install`（由 Claude Code 的 Bash 工具跑） |
+| 本地安装目录 | `~/.node_modules/` | `~/.claude/skills/` |
+| 自动加载已装 | Node `require()` 解析 | Claude Code 每次 prompt 扫描 `~/.claude/skills/` |
 
-So when Claude Code uses a private skill, three independent things
-happen — and they are **decoupled by design**:
+所以当 Claude Code 用一个私有 skill 时，**有三件相互独立的事在发生——它们在设计上是解耦的**：
 
 ```
-1. DISCOVER (remote, metadata-only, KB-sized)
+1. 发现 (远程, 仅 metadata, KB 量级)
    Claude Code → Registry MCP → search_registry_records
-   Returns: SKILL.md + packages[] pointers
-   No artifact transferred.
+   返回：SKILL.md + packages[] 指针
+   不传输任何制品
 
-2. DECIDE (Claude reasoning, no API call)
-   Claude reads the skillMd, decides whether to:
-     (a) inline the SKILL.md into context for one-shot use, OR
-     (b) install persistently via Bash, OR
-     (c) skip — already installed locally
+2. 决策 (Claude 推理过程, 没有 API 调用)
+   Claude 读 skillMd，决定走哪条：
+     (a) 一次性使用：直接把 SKILL.md 内嵌进对话上下文
+     (b) 持久安装：通过 Bash 工具触发 pip install
+     (c) 跳过：本地已经装过
 
-3. INSTALL (only if 2b, runs Claude Code's built-in Bash tool)
-   pip install <pkg> from CodeArtifact + post-install copy
-   Idempotent: re-running pip on a same-version package is a no-op.
+3. 安装 (仅 2b 时发生，由 Claude Code 自带的 Bash 工具执行)
+   pip install <包> 从 CodeArtifact 拉取 + post-install 拷贝
+   幂等：同一版本再跑一次 pip install 是 no-op
 ```
 
-The Registry never *pushes* a skill to your machine. The Registry
-never knows whether you have a skill installed locally. Those two
-concerns belong to the agent runtime (Claude Code) and to your
-consumer scripts.
+Registry 永远不会**主动推送** skill 到你的机器。Registry 也**不知道**你本地装过哪些 skill。这两件事归 agent runtime（Claude Code）和你的消费脚本管。
 
-### Two layers of "discovery", running in parallel
+### 两层"发现"机制并行运转
 
 ```
 ┌──────────────────────────────────────┐
-│ Remote layer                         │
+│ 远程层                               │
 │ Registry MCP / SDK                   │
-│ → returns metadata for the org's     │
-│   approved catalog                   │
-│ → unaware of your local filesystem   │
+│ → 返回组织内已审批目录的 metadata    │
+│ → 不感知你本地的文件系统             │
 └──────────────────────────────────────┘
-                 ┊  no communication
+                 ┊  互不通信
                  ┊
 ┌──────────────────────────────────────┐
-│ Local layer                          │
+│ 本地层                               │
 │ Claude Code / Bedrock Runtime        │
-│ → scans ~/.claude/skills/ on every   │
-│   prompt, lists what it finds        │
-│ → unaware of the Registry            │
+│ → 每个 prompt 扫描 ~/.claude/skills/ │
+│ → 不感知 Registry 的存在             │
 └──────────────────────────────────────┘
 ```
 
-The two layers don't talk to each other. A skill installed yesterday
-is found by the local layer instantly, with **zero remote calls**. A
-skill the team just published is found by the remote layer, with
-**zero local effect** until someone (or some agent) decides to
-install it.
+两层互不通信。**昨天装好的 skill 今天本地层瞬间发现，不发起任何远程调用**。**团队刚发布的新 skill 远程层立刻可搜，但本地什么都不会变**——除非你（或某个 agent）主动选择安装。
 
-### Cost of each interaction
+### 每种交互的成本
 
-| Scenario | What runs | Bytes over the wire |
+| 场景 | 实际跑了什么 | 网络字节 |
 |---|---|---|
-| Skill already in `~/.claude/skills/` | Local scan | 0 |
-| Search returns a skill, Claude inlines into context | `search_registry_records` | ~5KB metadata |
-| Search → decide to install | search + `pip install` from CodeArtifact | ~5KB metadata + ~15KB wheel |
-| Re-run install of same version | `pip install` no-ops via local cache | 0 |
-| Registry has v0.2.0, local has v0.1.0 | search + `pip install --upgrade` | metadata + delta |
+| Skill 已经在 `~/.claude/skills/` | 本地扫描 | 0 |
+| 搜到一个 skill，Claude 内嵌进上下文一次性用 | `search_registry_records` | ~5KB metadata |
+| 搜到 → 决定安装 | search + 从 CodeArtifact `pip install` | ~5KB metadata + ~15KB wheel |
+| 同一版本重新装一次 | `pip install` 走本地缓存 no-op | 0 |
+| Registry 是 v0.2.0、本地是 v0.1.0 | search + `pip install --upgrade` | metadata + 增量 |
 
-This is why "every Claude Code session calls the Registry" is fine.
-The calls are KB-sized metadata lookups, not artifact transfers.
+这就是为什么"每次对话都调一下 Registry"完全可接受——**调用是 KB 级 metadata 查询，不是制品传输**。
 
-## Repository layout
+## 仓库布局
 
 ```
 .
-├── README.md                          # this file
+├── README.md                          # 当前文件（中文）
+├── README.en.md                       # 英文版
 ├── docs/
-│   ├── 01-why-private-skills.md            # the enterprise case (Day-1 framing)
-│   ├── 02-architecture.md                  # service mapping + diagrams
-│   ├── 03-demo-walkthrough.md              # the 4-script flow with timings
-│   ├── 04-dynamic-discovery.md             # MCP endpoint: how Claude Code finds skills
-│   ├── 05-auth-placeholder.md              # IAM today, JWT/OIDC TODO
-│   ├── 06-future-optimizations.md          # cross-account, KMS CMK, EventBridge, OCI
-│   └── 07-extending-to-other-resources.md  # MCP, KBs, Lambda tools, guardrails, etc.
-├── cdk/                               # one-click TypeScript CDK
+│   ├── 01-why-private-skills.md            # 企业级动因（Day-1 框架）
+│   ├── 02-architecture.md                  # 服务映射 + 图
+│   ├── 03-demo-walkthrough.md              # 4 个脚本流程 + 时序
+│   ├── 04-dynamic-discovery.md             # MCP endpoint：Claude Code 怎么发现 skill
+│   ├── 05-auth-placeholder.md              # 现用 IAM，JWT/OIDC 待补
+│   ├── 06-future-optimizations.md          # 跨账号、KMS CMK、EventBridge、OCI 等
+│   └── 07-extending-to-other-resources.md  # MCP、KB、Lambda 工具、Guardrail 等
+├── cdk/                               # 一键部署的 TypeScript CDK
 │   ├── bin/blueprint.ts
 │   ├── lib/codeartifact-stack.ts
 │   ├── lib/registry-stack.ts
 │   └── package.json
-├── skill-package/                     # the example skill, ready to publish
+├── skill-package/                     # 可发布的示例 skill
 │   ├── pyproject.toml
 │   └── src/aws_cost_anomaly_triage/
 │       ├── postinstall.py
 │       └── skill_files/
 │           ├── SKILL.md
 │           └── resources/*.md
-├── scripts/                           # boto3 publish/approve/consume (Day-1)
+├── scripts/                           # boto3 publish/approve/consume（Day-1）
 │   ├── 01_create_registry.py
 │   ├── 02_register_skill.py
 │   ├── 03_approve_skill.py
 │   └── 04_consume_skill.py
-└── examples/                          # Day-N extension placeholders
+└── examples/                          # Day-N 扩展占位
     ├── mcp-server/
     ├── knowledge-base/
     ├── lambda-tool/
     └── guardrail/
 ```
 
-## Status of each section
+## 各部分状态
 
-Day-1 (Skills, end-to-end):
+Day-1（Skills，端到端）：
 
-| Section | Status |
+| 模块 | 状态 |
 |---|---|
-| CodeArtifact + Agent Registry CDK | ✅ Working |
-| `aws-cost-anomaly-triage` example skill | ✅ Working |
-| Publish + approve + consume scripts | ✅ Tested end-to-end |
-| MCP endpoint dynamic discovery | ✅ Documented; client config example |
-| IAM auth | ✅ Working |
+| CodeArtifact + Agent Registry CDK | ✅ 可工作 |
+| `aws-cost-anomaly-triage` 示例 skill | ✅ 可工作 |
+| 发布 + 审批 + 消费脚本 | ✅ 端到端测过 |
+| MCP endpoint 动态发现 | ✅ 文档化；含客户端配置示例 |
+| IAM 认证 | ✅ 可工作 |
 
-Day-N extensions:
+Day-N 扩展：
 
-| Section | Status |
+| 模块 | 状态 |
 |---|---|
-| MCP server records (`descriptorType: MCP`) | 📘 Documented in `07-extending` + `examples/mcp-server/` placeholder |
-| Knowledge Base records (CUSTOM) | 📘 Documented in `07-extending` + `examples/knowledge-base/` placeholder |
-| Lambda tool records (CUSTOM) | 📘 Documented in `07-extending` + `examples/lambda-tool/` placeholder |
-| Bedrock Guardrails records (CUSTOM) | 📘 Documented in `07-extending` + `examples/guardrail/` placeholder |
-| JWT/OIDC auth (Cognito/Okta) | 🔶 Phase 2 — see `docs/05-auth-placeholder.md` |
-| Cross-account consumption | 🔶 Phase 2 |
-| KMS CMK on CodeArtifact | 🔶 Phase 2 |
-| EventBridge → Slack approval pipeline | 🔶 Phase 2 |
-| OCI artifact distribution | ⏸ Future — pending agentskills/agentskills spec |
-| GitHub Actions CI for publish-on-merge | ⏸ Future |
+| MCP server records (`descriptorType: MCP`) | 📘 文档化于 `07-extending` + `examples/mcp-server/` 占位 |
+| Knowledge Base records (CUSTOM) | 📘 文档化于 `07-extending` + `examples/knowledge-base/` 占位 |
+| Lambda 工具 records (CUSTOM) | 📘 文档化于 `07-extending` + `examples/lambda-tool/` 占位 |
+| Bedrock Guardrails records (CUSTOM) | 📘 文档化于 `07-extending` + `examples/guardrail/` 占位 |
+| JWT/OIDC 认证（Cognito/Okta） | 🔶 Phase 2 — 见 `docs/05-auth-placeholder.md` |
+| 跨账号消费 | 🔶 Phase 2 |
+| CodeArtifact 上的 KMS CMK | 🔶 Phase 2 |
+| EventBridge → Slack 审批流水线 | 🔶 Phase 2 |
+| OCI 制品分发 | ⏸ 未来 — 等 agentskills/agentskills 规范定稿 |
+| GitHub Actions 合并即发布 CI | ⏸ 未来 |
 
-[→ Roadmap: `docs/06-future-optimizations.md`](docs/06-future-optimizations.md)
+[→ 路线图：`docs/06-future-optimizations.md`](docs/06-future-optimizations.md)
 
-## Why now (the SA take)
+## 为什么是现在（一个 SA 的判断）
 
-Two timing facts make this blueprint valuable in 2026-Q2:
+2026-Q2 这个时间点，让本蓝图有价值的是两个事实：
 
-1. **AWS Agent Registry just shipped (2026-04 preview)**. There is
-   currently **no AWS official blog or sample repo that connects it
-   to CodeArtifact for skill distribution**. This repo fills that gap
-   with verified end-to-end code.
-2. **Skills as enterprise IP is a real concern but most teams haven't
-   hit it yet**. The first wave of customers asking "where do my
-   private skills live" is happening now. Having a working blueprint
-   means an SA conversation goes from "let me get back to you" to
-   "here's the repo, let's adapt it to your IdP."
+1. **AWS Agent Registry 刚发布（2026-04 preview）**。**目前没有 AWS 官方博客或样例仓库把它和 CodeArtifact 串起来做 skill 分发**。本仓库用经过验证的端到端代码补这个空白。
+2. **Skills 作为企业 IP 是真问题，但多数团队还没撞上**。第一波客户问"我的私有 skill 放哪里"恰好就在这段时间。手里有一个能跑的蓝图，意味着 SA 对话从"让我研究一下"变成"这个仓库，咱们按你的 IdP 改一下"。
 
-This repo is intentionally opinionated where AWS docs aren't:
-PyPI-via-CodeArtifact is the recommended artifact backend for
-text-and-script skills, IAM auth is the day-1 path, JWT/OIDC is the
-day-2 path, and the registry is the right home for every governable
-AI resource type — not just skills. Disagreements welcome — file an
-issue.
+本仓库在 AWS 文档没明说的地方刻意有立场：**对纯文本和脚本类 skill，PyPI-via-CodeArtifact 是推荐的制品后端**；**IAM 是 day-1 路径，JWT/OIDC 是 day-2**；**Registry 应该容纳所有可治理的 AI 资源类型，而不是仅限 skill**。不同意？欢迎开 issue。
 
-## Inspiration / prior art
+## 灵感来源 / 相关工作
 
-- AWS Agent Registry public docs and the 2026-04 preview launch blog
-- Pinterest's "central registry + paved path" MCP architecture (ByteByteGo deep dive)
-- ToolHive / Stacklok Enterprise (the production-ready MCP equivalent for tools)
-- iflytek/skillhub (the cautionary tale: protocol mismatch with where the industry went)
-- Anthropic's `anthropics/skills` repo (the format definition)
+- AWS Agent Registry 公开文档与 2026-04 preview 发布博客
+- Pinterest 的"中心 registry + 通路（paved path）"MCP 架构（ByteByteGo 深度解读）
+- ToolHive / Stacklok Enterprise（MCP 工具方向 production-ready 的对应物）
+- iflytek/skillhub（反面案例：协议选错了赛道）
+- Anthropic 的 `anthropics/skills` 仓库（格式定义所在）
 
-## License
+## 许可证
 
-Apache 2.0. See [LICENSE](LICENSE).
+Apache 2.0。详见 [LICENSE](LICENSE)。
 
-## Disclaimer
+## 免责声明
 
-The author is an AWS Solutions Architect; this is a personal
-blueprint, not an AWS-published reference. Validate against your
-account-specific compliance requirements before production use.
+作者是 AWS Solutions Architect；这是个人蓝图，**不是 AWS 官方发布的参考架构**。在投产前请按你账号实际的合规要求验证。
