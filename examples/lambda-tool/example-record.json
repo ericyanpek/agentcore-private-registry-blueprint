@@ -1,0 +1,43 @@
+{
+  "name": "credit-limit-lookup",
+  "description": "Looks up a customer's current credit limit by customerId. Read-only, 100 RPS.",
+  "descriptorType": "CUSTOM",
+  "recordVersion": "1.0.0",
+  "customBody": {
+    "kind": "lambda-tool",
+    "kindVersion": "1.0.0",
+    "displayName": "credit-limit-lookup",
+    "target": {
+      "service": "lambda",
+      "resourceType": "Function",
+      "arn": "arn:aws:lambda:us-east-1:111122223333:function:credit-limit-lookup-prod",
+      "region": "us-east-1",
+      "alias": "PROD"
+    },
+    "owner": {
+      "team": "Billing",
+      "contact": "billing@example.internal"
+    },
+    "spec": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {"customerId": {"type": "string"}},
+        "required": ["customerId"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {"type": "number"},
+          "currency": {"type": "string"}
+        }
+      },
+      "timeoutSeconds": 5,
+      "rateLimitPerSecond": 100
+    },
+    "_meta": {
+      "com.example.invocation": {
+        "iamPrincipalRequired": "agent role must have lambda:InvokeFunction on this ARN"
+      }
+    }
+  }
+}

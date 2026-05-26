@@ -1,0 +1,33 @@
+{
+  "name": "pii-strict-guardrail",
+  "description": "Strict PII redaction + financial/legal advice block. Apply to all customer-facing surfaces.",
+  "descriptorType": "CUSTOM",
+  "recordVersion": "2.1.0",
+  "customBody": {
+    "kind": "guardrail",
+    "kindVersion": "1.0.0",
+    "displayName": "pii-strict-guardrail",
+    "target": {
+      "service": "bedrock",
+      "resourceType": "Guardrail",
+      "id": "REPLACE_ME_GUARDRAIL_ID",
+      "version": "DRAFT",
+      "region": "us-east-1"
+    },
+    "owner": {
+      "team": "Security-AppSec",
+      "contact": "appsec@example.internal"
+    },
+    "spec": {
+      "blockedTopics": ["financial-advice", "legal-advice"],
+      "piiEntities": ["SSN", "CREDIT_CARD", "EMAIL", "PHONE"],
+      "applicableTo": ["customer-facing", "external-comm"],
+      "regulatoryBasis": ["GDPR Art.5", "CCPA 1798.100"]
+    },
+    "_meta": {
+      "com.example.invocation": {
+        "guidance": "MUST be applied to every external customer interaction; do not bypass without security review"
+      }
+    }
+  }
+}

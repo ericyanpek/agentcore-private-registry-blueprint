@@ -186,6 +186,27 @@ Consumer:                   install-aws-cost-anomaly-triage
 Claude Code:                detects new skill on next prompt
 ```
 
+## Beyond skills — the same registry holds more
+
+Everything above describes the Skill flow, because that's what the
+Day-1 demo verifies end-to-end. The registry's design is broader:
+
+| `descriptorType` | Validation | Backend pattern |
+|---|---|---|
+| `AGENT_SKILLS` (this demo) | SKILL.md + skillDefinition v0.1.0 | CodeArtifact PyPI artifact + `pip install` activation |
+| `MCP` | MCP server.json schema | AgentCore Runtime / Lambda / ECS-hosted, **or** external HTTPS endpoint (URL-synced) |
+| `A2A` | Google A2A Agent Card | Any A2A-speaking agent runtime |
+| `CUSTOM` | Whatever JSON you define (`_meta` reverse-DNS recommended) | Any AWS resource: Bedrock KB, Lambda function, Step Functions state machine, Bedrock Guardrail, Cedar policy bundle, eval dataset in S3, schema in Schema Registry, … |
+
+The publish/approve/consume flow is identical for every type — only
+the descriptor body and the activation step differ. This is what
+makes the registry the right home for **all** of an org's governed
+AI resources, not just skills.
+
+For worked examples (an 18-record customer-care registry that uses
+all four `descriptorType`s), see
+[docs/07-extending-to-other-resources.md](./07-extending-to-other-resources.md).
+
 ## Boundary decisions
 
 A few things this blueprint deliberately leaves out — see

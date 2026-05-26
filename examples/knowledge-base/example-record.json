@@ -1,0 +1,34 @@
+{
+  "name": "product-faq-kb-v3",
+  "description": "RAG knowledge base of product FAQ — 4200+ docs, daily refresh, English-only.",
+  "descriptorType": "CUSTOM",
+  "recordVersion": "3.0.0",
+  "customBody": {
+    "kind": "knowledge-base",
+    "kindVersion": "1.0.0",
+    "displayName": "Product FAQ KB v3",
+    "target": {
+      "service": "bedrock",
+      "resourceType": "KnowledgeBase",
+      "arn": "arn:aws:bedrock:us-east-1:111122223333:knowledge-base/REPLACE_ME",
+      "region": "us-east-1"
+    },
+    "owner": {
+      "team": "Marketing-RAG",
+      "contact": "marketing-rag@example.internal"
+    },
+    "spec": {
+      "embeddingModel": "amazon.titan-embed-text-v2",
+      "vectorStore": "OpenSearch Serverless",
+      "documentCount": 4218,
+      "lastIngested": "2026-05-01",
+      "freshnessSlaHours": 24
+    },
+    "_meta": {
+      "com.example.invocation": {
+        "useFor": "Product/pricing questions only",
+        "doNotUseFor": "Engineering specs, internal roadmap"
+      }
+    }
+  }
+}

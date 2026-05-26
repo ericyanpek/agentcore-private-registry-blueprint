@@ -1,15 +1,39 @@
-# agentcore-private-skills-blueprint
+# agentcore-private-registry-blueprint
 
-> A working blueprint for running a **private, governed Agent Skills
+> A working blueprint for running a **private, governed AI resource
 > registry on AWS** — built on Amazon Bedrock AgentCore Registry +
-> AWS CodeArtifact. Includes one-click CDK, an end-to-end Python demo,
-> and a real text-only skill that gets installed into Claude Code.
+> AWS CodeArtifact.
+>
+> **Day 1**: ships a verified end-to-end **Skills** demo (one-click
+> CDK + a real skill that installs into Claude Code).
+>
+> **Day N**: the same registry — and most of the same patterns —
+> hold MCP servers, A2A agents, knowledge bases, Lambda tools,
+> guardrails, Cedar policies, eval datasets, and any custom resource
+> your org wants to govern. See
+> [docs/07-extending-to-other-resources.md](docs/07-extending-to-other-resources.md).
 
 **Status**: Preview-stage reference (2026-05). AWS Agent Registry is in public preview; APIs may change.
 
 ---
 
 ## Why this exists
+
+This blueprint exists at the intersection of two AWS shipments:
+
+- **Bedrock AgentCore Registry** (preview, 2026-04) — a governed,
+  searchable catalog for **agents, MCP servers/tools, skills, and
+  any custom resource** an org wants to publish privately
+- **CodeArtifact** — the obvious-but-rarely-paired private artifact
+  backend for the things in that catalog
+
+Together they solve a problem most enterprises haven't articulated yet
+but will hit by mid-2026: **AI resources have become enterprise IP,
+and they need the same governance you give code, infrastructure,
+and data**.
+
+The Day-1 demo focuses on **Skills** because that's where the privacy
+case is sharpest:
 
 In 2025-2026, **Agent Skills became how teams encode their SOPs**:
 financial analysis playbooks, incident triage runbooks, data discovery
@@ -43,6 +67,8 @@ verify against your own Claude Code install.
 
 ## What's in this blueprint
 
+The Day-1 scope (verified end-to-end):
+
 | Concern | AWS service used | What this repo provides |
 |---|---|---|
 | **Discovery + governance** | Bedrock AgentCore Registry | CDK that creates the registry; Python scripts that publish/approve records; reference `skillDefinition` schema |
@@ -51,6 +77,22 @@ verify against your own Claude Code install.
 | **Activation** | (consumer-side) | `postinstall.py` console script + `04_consume_skill.py` showing search → install → activate end-to-end |
 | **One-click deploy** | AWS CDK (TypeScript) | `cdk deploy` provisions everything in ~3 minutes |
 | **Auth** | IAM today, JWT/OIDC documented | Working IAM auth in scripts; OAuth/JWT path documented as Phase 2 |
+
+The Day-N scope (documented, ready to extend):
+
+The same registry holds four `descriptorType`s. This blueprint demos
+`AGENT_SKILLS`; the others are equally first-class:
+
+| `descriptorType` | What it catalogs | Schema |
+|---|---|---|
+| `AGENT_SKILLS` | Reusable SOPs (this demo) | SKILL.md + skillDefinition v0.1.0 |
+| `MCP` | MCP servers / tools | MCP server.json (open spec) |
+| `A2A` | Agents | Google A2A Agent Card |
+| `CUSTOM` | Anything else (KBs, Lambda tools, guardrails, Cedar policies, SFN state machines, eval sets, schemas, …) | You define the JSON shape |
+
+A walked-through "customer care" example registering 18 resources
+across all four types lives in
+[`docs/07-extending-to-other-resources.md`](docs/07-extending-to-other-resources.md).
 
 ## What you can do with it in 10 minutes
 
@@ -105,12 +147,13 @@ Claude Code automatically lists the skill alongside its built-ins.
 .
 ├── README.md                          # this file
 ├── docs/
-│   ├── 01-why-private-skills.md       # the enterprise case
-│   ├── 02-architecture.md             # service mapping + diagrams
-│   ├── 03-demo-walkthrough.md         # the 4-script flow with timings
-│   ├── 04-dynamic-discovery.md        # MCP endpoint: how Claude Code finds skills
-│   ├── 05-auth-placeholder.md         # IAM today, JWT/OIDC TODO
-│   └── 06-future-optimizations.md     # cross-account, KMS CMK, EventBridge, OCI
+│   ├── 01-why-private-skills.md            # the enterprise case (Day-1 framing)
+│   ├── 02-architecture.md                  # service mapping + diagrams
+│   ├── 03-demo-walkthrough.md              # the 4-script flow with timings
+│   ├── 04-dynamic-discovery.md             # MCP endpoint: how Claude Code finds skills
+│   ├── 05-auth-placeholder.md              # IAM today, JWT/OIDC TODO
+│   ├── 06-future-optimizations.md          # cross-account, KMS CMK, EventBridge, OCI
+│   └── 07-extending-to-other-resources.md  # MCP, KBs, Lambda tools, guardrails, etc.
 ├── cdk/                               # one-click TypeScript CDK
 │   ├── bin/blueprint.ts
 │   ├── lib/codeartifact-stack.ts
@@ -123,14 +166,21 @@ Claude Code automatically lists the skill alongside its built-ins.
 │       └── skill_files/
 │           ├── SKILL.md
 │           └── resources/*.md
-└── scripts/                           # boto3 publish/approve/consume
-    ├── 01_create_registry.py
-    ├── 02_register_skill.py
-    ├── 03_approve_skill.py
-    └── 04_consume_skill.py
+├── scripts/                           # boto3 publish/approve/consume (Day-1)
+│   ├── 01_create_registry.py
+│   ├── 02_register_skill.py
+│   ├── 03_approve_skill.py
+│   └── 04_consume_skill.py
+└── examples/                          # Day-N extension placeholders
+    ├── mcp-server/
+    ├── knowledge-base/
+    ├── lambda-tool/
+    └── guardrail/
 ```
 
 ## Status of each section
+
+Day-1 (Skills, end-to-end):
 
 | Section | Status |
 |---|---|
@@ -139,8 +189,17 @@ Claude Code automatically lists the skill alongside its built-ins.
 | Publish + approve + consume scripts | ✅ Tested end-to-end |
 | MCP endpoint dynamic discovery | ✅ Documented; client config example |
 | IAM auth | ✅ Working |
+
+Day-N extensions:
+
+| Section | Status |
+|---|---|
+| MCP server records (`descriptorType: MCP`) | 📘 Documented in `07-extending` + `examples/mcp-server/` placeholder |
+| Knowledge Base records (CUSTOM) | 📘 Documented in `07-extending` + `examples/knowledge-base/` placeholder |
+| Lambda tool records (CUSTOM) | 📘 Documented in `07-extending` + `examples/lambda-tool/` placeholder |
+| Bedrock Guardrails records (CUSTOM) | 📘 Documented in `07-extending` + `examples/guardrail/` placeholder |
 | JWT/OIDC auth (Cognito/Okta) | 🔶 Phase 2 — see `docs/05-auth-placeholder.md` |
-| Cross-account skill consumption | 🔶 Phase 2 |
+| Cross-account consumption | 🔶 Phase 2 |
 | KMS CMK on CodeArtifact | 🔶 Phase 2 |
 | EventBridge → Slack approval pipeline | 🔶 Phase 2 |
 | OCI artifact distribution | ⏸ Future — pending agentskills/agentskills spec |
@@ -163,9 +222,11 @@ Two timing facts make this blueprint valuable in 2026-Q2:
    "here's the repo, let's adapt it to your IdP."
 
 This repo is intentionally opinionated where AWS docs aren't:
-PyPI-via-CodeArtifact is the recommended artifact backend, IAM auth
-is the day-1 path, JWT/OIDC is the day-2 path. Disagreements welcome
-— file an issue.
+PyPI-via-CodeArtifact is the recommended artifact backend for
+text-and-script skills, IAM auth is the day-1 path, JWT/OIDC is the
+day-2 path, and the registry is the right home for every governable
+AI resource type — not just skills. Disagreements welcome — file an
+issue.
 
 ## Inspiration / prior art
 

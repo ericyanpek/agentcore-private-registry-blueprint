@@ -1,0 +1,43 @@
+{
+  "name": "example-mcp",
+  "description": "Internal MCP server exposing weather and calendar tools.",
+  "descriptorType": "MCP",
+  "recordVersion": "1.0.0",
+  "descriptors": {
+    "mcp": {
+      "server": {
+        "schemaVersion": "2025-12-11",
+        "inlineContent": {
+          "name": "io.example/weather-calendar-mcp",
+          "description": "Weather lookups and team calendar reads.",
+          "version": "1.0.0",
+          "transport": {"type": "streamable-http"},
+          "endpoint": "https://mcp.example.internal/v1"
+        }
+      },
+      "tools": {
+        "protocolVersion": "2025-11-25",
+        "inlineContent": [
+          {
+            "name": "get_weather",
+            "description": "Returns current weather for a city.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {"city": {"type": "string"}},
+              "required": ["city"]
+            }
+          },
+          {
+            "name": "list_team_events",
+            "description": "Returns this week's events for a team calendar.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {"teamId": {"type": "string"}},
+              "required": ["teamId"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
