@@ -168,12 +168,15 @@ the user's home directory cannot recover anything.
 ### How users use it
 
 ```bash
-# One-time: export 5 env vars (do this in shell rc once)
-export SKILL_CLI_REGION="us-east-1"
-export SKILL_CLI_USER_POOL_ID="us-east-1_AbCdEfG"
-export SKILL_CLI_USER_POOL_CLIENT_ID="<client-id>"
-export SKILL_CLI_USER_POOL_DOMAIN="<your-pool>.auth.us-east-1.amazoncognito.com"
-export SKILL_CLI_IDENTITY_POOL_ID="us-east-1:<identity-pool-uuid>"
+# One-time: write Cognito endpoint config (NO secrets)
+mkdir -p ~/.skillpublish && cat > ~/.skillpublish/skill-cli.toml <<'EOF'
+[default]
+region = "us-east-1"
+user_pool_id = "us-east-1_AbCdEfG"
+client_id = "<client-id>"
+user_pool_domain = "<your-pool>.auth.us-east-1.amazoncognito.com"
+identity_pool_id = "us-east-1:<identity-pool-uuid>"
+EOF
 
 # One-time: write AWS profile pointer (NO secrets)
 mkdir -p ~/.aws && cat >> ~/.aws/config <<'EOF'
@@ -192,12 +195,30 @@ AWS_PROFILE=skills pip install aws-cost-anomaly-triage
 
 After `skill-cli login` exits, the user's machine has:
 
+- `~/.skillpublish/skill-cli.toml` — endpoint identifiers, no secrets
 - `~/.aws/config` — a 2-line plain text pointer
 - OS keyring — the actual credentials, OS-encrypted
-- 5 env vars — non-sensitive endpoint identifiers
 
-That's all. No `~/.aws/credentials` file, no JSON config file in
-home directory, no plaintext token anywhere.
+That's all. No `~/.aws/credentials` file, no plaintext token anywhere.
+
+**Configuration precedence**: env vars (`SKILL_CLI_*`) override TOML
+when both are set; TOML is recommended for daily use, env vars for CI.
+
+### OAuth security details
+
+The login flow implements the RFC 8252 ("OAuth 2.0 for Native Apps")
+recommendations:
+
+- **PKCE S256** — every login generates a fresh `code_verifier`; the
+  derived `code_challenge` goes into the authorize URL; the verifier
+  goes into the token exchange. Without it, an attacker with the
+  authorization code (e.g., a malicious browser extension) could
+  exchange it for tokens.
+- **CSRF state** — a random `state` parameter ties the callback to the
+  request that started the login. Mismatch → abort.
+- **Loopback redirect with OS-assigned port** — `skill-cli` binds port 0
+  and reads back what the OS assigned, so multiple OAuth tools on the
+  same machine don't collide on a fixed port.
 
 ## Sequence — Alice installs a skill
 

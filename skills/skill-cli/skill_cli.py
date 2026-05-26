@@ -34,14 +34,18 @@ hardening:
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import http.server
 import json
 import os
+import secrets
 import sys
 import threading
 import time
 import urllib.parse
 import webbrowser
+from pathlib import Path
 from typing import Any, Optional
 
 try:
@@ -54,48 +58,97 @@ except ImportError as e:
         "  pip install boto3 keyring requests"
     )
 
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:
+    try:
+        import tomli as tomllib  # type: ignore
+    except ModuleNotFoundError:
+        tomllib = None  # graceful: env vars still work without TOML support
+
 KEYRING_SERVICE = "skill-cli"
 TOKEN_KEY = "tokens_json"  # stores {access_token, id_token, refresh_token, expires_at}
 CREDS_KEY = "aws_creds_json"  # stores {AccessKeyId, SecretAccessKey, SessionToken, Expiration}
 
-CALLBACK_PORT = 8765
+CONFIG_PATH = Path.home() / ".skillpublish" / "skill-cli.toml"
 CALLBACK_PATH = "/callback"
 
+# Required keys; map TOML key → env var name
+_REQUIRED_KEYS = {
+    "region": "SKILL_CLI_REGION",
+    "user_pool_id": "SKILL_CLI_USER_POOL_ID",
+    "client_id": "SKILL_CLI_USER_POOL_CLIENT_ID",
+    "user_pool_domain": "SKILL_CLI_USER_POOL_DOMAIN",
+    "identity_pool_id": "SKILL_CLI_IDENTITY_POOL_ID",
+}
 
-def env_or(key: str, default: Optional[str] = None) -> str:
-    """Read a value from env, fall back to default, error if neither."""
-    val = os.environ.get(key, default)
-    if val is None:
-        sys.exit(
-            f"missing required environment variable {key} — "
-            "either export it or set it in ~/.skillpublish/skill-cli.env"
-        )
-    return val
+
+def _load_toml_config(path: Path = CONFIG_PATH) -> dict:
+    """Read [default] section from ~/.skillpublish/skill-cli.toml if present."""
+    if not path.exists() or tomllib is None:
+        return {}
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+    return data.get("default", {}) or {}
 
 
 def cognito_config() -> dict:
-    """Resolve all Cognito endpoints/IDs from env. Required:
-        SKILL_CLI_REGION
-        SKILL_CLI_USER_POOL_ID
-        SKILL_CLI_USER_POOL_CLIENT_ID
-        SKILL_CLI_USER_POOL_DOMAIN     (e.g., my-pool.auth.us-east-1.amazoncognito.com)
-        SKILL_CLI_IDENTITY_POOL_ID
+    """Resolve Cognito endpoints/IDs from (in order of precedence):
+        1. Environment variables (SKILL_CLI_*)
+        2. ~/.skillpublish/skill-cli.toml [default] section
+       And error out clearly listing whichever keys are still missing.
+
+    Example skill-cli.toml:
+        [default]
+        region = "us-east-1"
+        user_pool_id = "us-east-1_AbCdEfG"
+        client_id = "abc123"
+        user_pool_domain = "my-pool.auth.us-east-1.amazoncognito.com"
+        identity_pool_id = "us-east-1:identity-pool-uuid"
     """
-    return {
-        "region": env_or("SKILL_CLI_REGION"),
-        "user_pool_id": env_or("SKILL_CLI_USER_POOL_ID"),
-        "client_id": env_or("SKILL_CLI_USER_POOL_CLIENT_ID"),
-        "user_pool_domain": env_or("SKILL_CLI_USER_POOL_DOMAIN"),
-        "identity_pool_id": env_or("SKILL_CLI_IDENTITY_POOL_ID"),
-    }
+    toml_cfg = _load_toml_config()
+    resolved: dict = {}
+    missing: list[str] = []
+    for toml_key, env_key in _REQUIRED_KEYS.items():
+        val = os.environ.get(env_key) or toml_cfg.get(toml_key)
+        if val is None:
+            missing.append(f"{env_key} (or [default].{toml_key} in {CONFIG_PATH})")
+        else:
+            resolved[toml_key] = val
+    if missing:
+        sys.exit(
+            "missing required configuration:\n  - "
+            + "\n  - ".join(missing)
+            + "\n\nSet them as environment variables OR create "
+            f"{CONFIG_PATH} with a [default] section."
+        )
+    return resolved
+
+
+def _make_pkce_pair() -> tuple[str, str]:
+    """Return (code_verifier, code_challenge) per RFC 7636 S256."""
+    verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode("ascii")).digest()
+    ).decode("ascii").rstrip("=")
+    return verifier, challenge
 
 
 # ── Browser OAuth flow ─────────────────────────────────────────────
 
 
 class _CallbackHandler(http.server.BaseHTTPRequestHandler):
-    """Tiny localhost HTTP server to capture OAuth redirect."""
+    """Tiny localhost HTTP server to capture OAuth redirect.
+
+    The expected flow:
+      browser → Cognito Hosted UI → 302 → http://localhost:<port>/callback?code=...&state=...
+
+    We capture both `code` and `state`. `login()` validates state matches
+    the CSRF token it generated, before touching the code.
+    """
     captured_code: Optional[str] = None
+    captured_state: Optional[str] = None
+    captured_error: Optional[str] = None
 
     def do_GET(self) -> None:  # noqa: N802
         if not self.path.startswith(CALLBACK_PATH):
@@ -104,9 +157,18 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
             return
         query = urllib.parse.urlparse(self.path).query
         params = urllib.parse.parse_qs(query)
-        code = params.get("code", [None])[0]
-        if code:
-            _CallbackHandler.captured_code = code
+        if "error" in params:
+            _CallbackHandler.captured_error = params["error"][0]
+            self.send_response(400)
+            self.end_headers()
+            self.wfile.write(
+                b"<html><body><h2>Login failed.</h2>"
+                b"<p>Check the terminal for details.</p></body></html>"
+            )
+            return
+        _CallbackHandler.captured_code = params.get("code", [None])[0]
+        _CallbackHandler.captured_state = params.get("state", [None])[0]
+        if _CallbackHandler.captured_code:
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
@@ -124,8 +186,24 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
 
 
 def login(cfg: dict) -> dict:
-    """Run OAuth code flow → return token bundle (id_token + refresh_token)."""
-    redirect_uri = f"http://localhost:{CALLBACK_PORT}{CALLBACK_PATH}"
+    """Run OAuth code flow with PKCE + state → return token bundle.
+
+    Implements RFC 8252 (OAuth 2.0 for Native Apps) recommendations:
+      - PKCE S256 (code_verifier + code_challenge)
+      - CSRF state parameter, validated on callback
+      - Loopback redirect with OS-assigned port (avoids port conflicts)
+    """
+    # Bind port 0 so the OS picks a free port. We then read it back and
+    # construct the redirect_uri matching what we registered with Cognito
+    # for development (http://localhost/callback with any port — Cognito
+    # treats them as equivalent for loopback redirects per RFC 8252 §7.3).
+    server = http.server.HTTPServer(("localhost", 0), _CallbackHandler)
+    actual_port = server.server_port
+    redirect_uri = f"http://localhost:{actual_port}{CALLBACK_PATH}"
+
+    code_verifier, code_challenge = _make_pkce_pair()
+    state = secrets.token_urlsafe(32)
+
     auth_url = (
         f"https://{cfg['user_pool_domain']}/oauth2/authorize?"
         + urllib.parse.urlencode({
@@ -133,30 +211,41 @@ def login(cfg: dict) -> dict:
             "response_type": "code",
             "scope": "openid email profile",
             "redirect_uri": redirect_uri,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+            "state": state,
         })
     )
 
-    server = http.server.HTTPServer(("localhost", CALLBACK_PORT),
-                                     _CallbackHandler)
     server_thread = threading.Thread(target=server.handle_request, daemon=True)
     server_thread.start()
 
-    print(f"opening browser for SSO login...")
+    print(f"opening browser for SSO login (callback on port {actual_port})...")
     webbrowser.open(auth_url)
     server_thread.join(timeout=300)
     server.server_close()
 
+    if _CallbackHandler.captured_error:
+        sys.exit(f"OAuth provider returned error: {_CallbackHandler.captured_error}")
+
     code = _CallbackHandler.captured_code
+    received_state = _CallbackHandler.captured_state
     if not code:
         sys.exit("did not receive auth code (timeout or denied)")
+    if received_state != state:
+        sys.exit(
+            "OAuth state mismatch — possible CSRF attempt. "
+            "Aborting login. Try `skill-cli login` again."
+        )
 
-    # Exchange code for tokens
+    # Exchange code for tokens — include code_verifier per PKCE spec
     token_url = f"https://{cfg['user_pool_domain']}/oauth2/token"
     resp = requests.post(token_url, data={
         "grant_type": "authorization_code",
         "client_id": cfg["client_id"],
         "code": code,
         "redirect_uri": redirect_uri,
+        "code_verifier": code_verifier,
     }, headers={"Content-Type": "application/x-www-form-urlencoded"})
     resp.raise_for_status()
     tokens = resp.json()
@@ -303,7 +392,6 @@ def cmd_whoami(args: argparse.Namespace) -> int:
     if len(parts) != 3:
         print("invalid id_token in keyring")
         return 1
-    import base64
     payload = parts[1] + "=" * (-len(parts[1]) % 4)
     claims = json.loads(base64.urlsafe_b64decode(payload))
     print(f"email: {claims.get('email')}")

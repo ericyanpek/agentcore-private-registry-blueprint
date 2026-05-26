@@ -332,7 +332,7 @@ Day-1 (Skills, end-to-end):
 | MCP endpoint dynamic discovery | ✅ Documented; client config example |
 | IAM auth | ✅ Working |
 | `publish-skill` meta-skill (parameterized publisher + 4-tier IAM) | ✅ Script preflight verified; docs/08+09 written |
-| End-user JWT access (Cognito User Pool + Identity Pool) | ✅ CDK synth-clean; `skill-cli` client works; docs/10 written |
+| End-user access (Cognito User Pool → Identity Pool → temporary IAM) — **indirect** JWT path | ✅ CDK synth-clean; `skill-cli` client works; docs/10 written |
 
 Day-N extensions:
 
@@ -342,7 +342,7 @@ Day-N extensions:
 | Knowledge Base records (CUSTOM) | 📘 Documented in `07-extending` + `examples/knowledge-base/` placeholder |
 | Lambda tool records (CUSTOM) | 📘 Documented in `07-extending` + `examples/lambda-tool/` placeholder |
 | Bedrock Guardrails records (CUSTOM) | 📘 Documented in `07-extending` + `examples/guardrail/` placeholder |
-| JWT/OIDC auth (Cognito/Okta) | 🔶 Phase 2 — see `docs/05-auth-placeholder.md` |
+| Registry MCP endpoint **direct** JWT (CustomJWTAuthorizer with Okta/any OIDC) | 🔶 Phase 2 — Cognito covered via the indirect path; non-Cognito IdPs attaching directly to Registry still pending — see `docs/05-auth-placeholder.md` |
 | Cross-account consumption | 🔶 Phase 2 |
 | KMS CMK on CodeArtifact | 🔶 Phase 2 |
 | EventBridge → Slack approval pipeline | 🔶 Phase 2 |

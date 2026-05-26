@@ -266,7 +266,7 @@ Day-1（Skills，端到端）：
 | MCP endpoint 动态发现 | ✅ 文档化；含客户端配置示例 |
 | IAM 认证 | ✅ 可工作 |
 | `publish-skill` meta-skill（参数化发布器 + 四档 IAM 策略） | ✅ 脚本已 preflight 通过；docs/08+09 已写 |
-| 终端用户 JWT 接入（Cognito User Pool + Identity Pool） | ✅ CDK 通过 cdk synth；`skill-cli` 客户端可工作；docs/10 已写 |
+| 终端用户访问（Cognito User Pool → Identity Pool → 临时 IAM）—— **间接** JWT 路径 | ✅ CDK 通过 cdk synth；`skill-cli` 客户端可工作；docs/10 已写 |
 
 Day-N 扩展：
 
@@ -276,7 +276,7 @@ Day-N 扩展：
 | Knowledge Base records (CUSTOM) | 📘 文档化于 `07-extending` + `examples/knowledge-base/` 占位 |
 | Lambda 工具 records (CUSTOM) | 📘 文档化于 `07-extending` + `examples/lambda-tool/` 占位 |
 | Bedrock Guardrails records (CUSTOM) | 📘 文档化于 `07-extending` + `examples/guardrail/` 占位 |
-| JWT/OIDC 认证（Cognito/Okta） | 🔶 Phase 2 — 见 `docs/05-auth-placeholder.md` |
+| Registry MCP endpoint **直接** JWT（CustomJWTAuthorizer + Okta/任意 OIDC） | 🔶 Phase 2 — Cognito 已通过间接路径覆盖；非 Cognito IdP 直挂 Registry 待补 — 见 `docs/05-auth-placeholder.md` |
 | 跨账号消费 | 🔶 Phase 2 |
 | CodeArtifact 上的 KMS CMK | 🔶 Phase 2 |
 | EventBridge → Slack 审批流水线 | 🔶 Phase 2 |

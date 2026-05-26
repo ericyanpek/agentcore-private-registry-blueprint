@@ -33,7 +33,32 @@ User never sees the credentials. Never edits a file.
 
 ## Setup
 
-Set environment variables (once, in shell rc):
+Configuration comes from one of (in order of precedence):
+
+1. **Environment variables** (`SKILL_CLI_*`) — useful for CI / one-off
+2. **`~/.skillpublish/skill-cli.toml`** — recommended for daily use, shares
+   the same parent directory as `publish-skill` config
+
+### Option A — TOML config (recommended)
+
+```bash
+mkdir -p ~/.skillpublish
+cat > ~/.skillpublish/skill-cli.toml <<'EOF'
+[default]
+region = "us-east-1"
+user_pool_id = "<from CDK output: UserPoolId>"
+client_id = "<from CDK output: UserPoolClientId>"
+user_pool_domain = "<your-pool>.auth.us-east-1.amazoncognito.com"
+identity_pool_id = "<from CDK output: IdentityPoolId>"
+EOF
+```
+
+Python <3.11 also needs `tomli`:
+```bash
+pip install tomli  # only if your interpreter is 3.9 or 3.10
+```
+
+### Option B — environment variables
 
 ```bash
 export SKILL_CLI_REGION="us-east-1"
@@ -108,14 +133,18 @@ not your unlocked OS user session **cannot recover credentials**.
 
 ## Security notes
 
+- **PKCE (RFC 7636 S256) + CSRF state** are enforced on every login —
+  the auth URL carries a `code_challenge` and a random `state`; the
+  callback handler rejects the response if `state` doesn't match.
+- The localhost callback listener binds to port 0 (OS-assigned), not a
+  fixed port. This avoids conflicts with other OAuth tools and keeps the
+  redirect URI single-use.
 - `skill-cli` does NOT validate JWT signatures locally — it trusts
   Cognito's responses over HTTPS. Identity Pool validates JWTs
   server-side; that's the actual enforcement point.
 - Refresh tokens last 30 days by default (Cognito User Pool client
   config). Shorter = more re-logins, but better post-compromise
   recovery.
-- The localhost callback listener (port 8765) only runs during
-  active login. It captures only the OAuth `code` parameter.
 
 ## What this is NOT
 
@@ -128,3 +157,13 @@ not your unlocked OS user session **cannot recover credentials**.
 
 For the architecture rationale see
 [`../../docs/10-end-user-access.md`](../../docs/10-end-user-access.md).
+
+## Known gaps
+
+- **No unit tests yet.** `creds_expired()` time parsing, refresh-token
+  fallback behavior, callback handler state mismatch, and the TOML +
+  env-var resolution precedence are all in-scope for unit tests but
+  none exist. Tracked as
+  [Issue: skill-cli unit tests](https://github.com/ericyanpek/agentcore-private-registry-blueprint/issues/1).
+- **No Device Flow path.** Servers without a browser must use
+  IAM Identity Center directly today; Device Flow support is Phase 2.
