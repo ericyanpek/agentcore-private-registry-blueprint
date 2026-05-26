@@ -1,73 +1,92 @@
-# Auth & permissions — placeholder + cross-references
+# Auth & permissions — index
 
-> **Status:** Hardening still in progress, but the major item — end-user
-> JWT-based access via Cognito — is now spec'd and built. See:
->   - [docs/10-end-user-access.md](./10-end-user-access.md) for the
->     end-user (Reader) path with Cognito User Pool + Identity Pool
->   - [docs/09-publishing-iam.md](./09-publishing-iam.md) for the
->     Publisher / Curator / Admin IAM roles
->
-> The current Day-1 demo still uses broad `bedrock-agentcore:*` and
-> `codeartifact:*` so an SA can run it end-to-end without hand-crafting
-> policies. Items below are remaining hardening for production.
+This was the original placeholder for the entire auth story. Most of
+its content has been promoted to dedicated docs:
 
-## What's working today (Phase 1)
+| What you want to know | Where to read it |
+|---|---|
+| How four IAM personas (Reader / Publisher / Curator / Admin) get scoped policies for `bedrock-agentcore:*` and `codeartifact:*` | [docs/09-publishing-iam.md](./09-publishing-iam.md) |
+| How non-IAM end users (analysts, support agents, most developers) consume skills via Cognito User Pool + Identity Pool, with no AWS credentials on their machines | [docs/10-end-user-access.md](./10-end-user-access.md) |
+| The CDK that creates the Cognito identity layer | [`cdk/lib/identity-stack.ts`](../cdk/lib/identity-stack.ts) |
+| The end-user client that bridges JWT to the AWS SDK `credential_process` | [`skills/skill-cli/`](../skills/skill-cli/) |
 
-- IAM-based inbound auth on the registry (control + data plane)
-- IAM-issued 12h bearer token for CodeArtifact via `aws codeartifact login`
-- `mcp-proxy-for-aws` for SigV4-signed MCP requests from Claude Code
-- Broad IAM grant on the EC2/dev role for end-to-end testing
+> **One thing to flag explicitly**: the four-tier IAM policies in
+> `docs/09` are **documented JSON, not provisioned IAM resources**.
+> `cdk deploy --all` does NOT create `Skills-Reader`, `Skills-Publisher`,
+> etc. groups for you. You attach those policies to your own IAM Groups,
+> Identity Center permission sets, or roles per your org's identity
+> conventions. The CDK provisions only what's blueprint-specific
+> (CodeArtifact, Registry, optional Cognito User/Identity Pools).
 
-This is fine for: a single team's PoC, an internal SA demo, an early
-customer evaluation.
+## What this doc still covers
 
-## What needs hardening (Phase 2 — TODO)
+The remaining items below are auth-related hardening that's neither
+already shipped (in `docs/09` / `docs/10`) nor obviously belonging to a
+different doc.
 
-### 2.1 Per-persona least privilege
+### Direct-JWT path on the Registry MCP endpoint
 
-The four personas need different IAM policies; the demo collapses
-them. The right shape:
+`docs/10` ships the **indirect** JWT path: Cognito User Pool → Identity
+Pool → temporary IAM → Registry SigV4. This is the right shape when
+you also need IAM credentials for CodeArtifact.
 
-| Persona | What they do | Allowed actions |
-|---|---|---|
-| **Admin** | Create/delete registries, manage namespaces | `CreateRegistry`, `DeleteRegistry`, `UpdateRegistry`, `*RegistryRecordStatus`, full CodeArtifact admin |
-| **Publisher** | Publish skills | `CreateRegistryRecord`, `SubmitRegistryRecordForApproval`, `Get*` on own records, CodeArtifact `PublishPackageVersion` on the team's repo |
-| **Curator** | Approve/reject submissions | `UpdateRegistryRecordStatus`, `Get*`, `List*` |
-| **Consumer** | Search + install | `SearchRegistryRecords`, `InvokeRegistryMcp`, `Get*` on `APPROVED` records, CodeArtifact `Read*Package*` |
+The Registry also supports a **direct** JWT inbound auth via
+`customJWTAuthorizer`, where the Registry MCP endpoint validates JWTs
+signed by any OIDC provider (not just Cognito) — Okta, Entra ID,
+Auth0, IAM Identity Center, etc. This is appropriate when:
 
-**TODO**: ship `cdk/lib/iam-personas.ts` with four IAM groups +
-managed policies + role-trust patterns for IAM Identity Center.
-
-### 2.2 JWT/OIDC inbound auth (Cognito flavor)
-
-Currently the registry is created with default IAM auth. To switch
-to Cognito JWT for the search/MCP plane:
+- Users only need to *search* the Registry, not pull artifacts
+- You don't want any AWS service in the JWT validation path
+- Your org's IdP is not Cognito and SAML-federating it through
+  Cognito is unwanted overhead
 
 ```bash
-# rough shape — to be productized in CDK
+# Sketch — productionize before using
 aws bedrock-agentcore-control update-registry \
   --registry-id <id> \
+  --authorizer-type CUSTOM_JWT \
   --authorizer-configuration '{
     "customJWTAuthorizer": {
-      "discoveryUrl": "https://cognito-idp.<region>.amazonaws.com/<userPoolId>/.well-known/openid-configuration",
-      "allowedClients": ["<appClientId>"],
+      "discoveryUrl": "https://your-idp/.well-known/openid-configuration",
+      "allowedClients": ["<client-id>"],
       "allowedScopes": ["registry/search"],
       "allowedAudience": ["<audience>"]
     }
   }'
 ```
 
-**TODO**:
-- CDK module that provisions Cognito user pool + app client + scopes
-- Worked example: same flow with **Okta** (`discoveryUrl` + `allowedClients`
-  swapped, no Cognito)
-- Worked example: same flow with **AWS IAM Identity Center** as OIDC IdP
+This is **not currently in the CDK** — the registry-stack.ts uses the
+default IAM auth.
 
-### 2.3 CodeArtifact resource policies for cross-account consumption
+**Phase 2 TODO**: a CDK construct `RegistryWithJwtAuth` that takes
+discovery URL + allowed clients + scopes and wires it into the
+`bedrock-agentcore-control:update-registry` call.
 
-Today the demo assumes one AWS account. Real orgs have:
+### CodeArtifact KMS customer-managed key (CMK)
 
-- A **central** account that owns the registry + CodeArtifact
+For compliance regimes that require CMK rather than AWS-managed keys.
+
+```typescript
+// Phase 2 sketch in cdk/lib/codeartifact-stack.ts
+const cmk = new kms.Key(this, 'CodeArtifactCmk', {
+  description: 'Customer-managed key for skills CodeArtifact domain',
+  enableKeyRotation: true,
+  alias: 'alias/skills-codeartifact',
+});
+new codeartifact.CfnDomain(this, 'Domain', {
+  domainName: 'skills-demo',
+  encryptionKey: cmk.keyArn,
+});
+```
+
+**Phase 2 TODO**: add `--cmk` context flag wiring the CMK into
+domain creation, plus rotation + access policies.
+
+### Cross-account skill consumption
+
+Today's blueprint assumes one AWS account. Real orgs typically have:
+
+- A **central** account that owns the Registry + CodeArtifact
 - **Workload** accounts where skills are consumed
 
 CodeArtifact supports cross-account via repo resource policy:
@@ -94,56 +113,29 @@ CodeArtifact supports cross-account via repo resource policy:
 }
 ```
 
-The Agent Registry side: the workload account's principal needs
+The Registry side: the workload account principal needs
 `bedrock-agentcore:SearchRegistryRecords` against the central
 account's registry ARN. The control-plane stays in the central account.
 
-**TODO**:
-- CDK construct `MultiAccountRegistry` that takes a list of consumer
-  account IDs and emits both resource policies
-- Worked AWS Organizations OU example
+**Phase 2 TODO**: a CDK construct `MultiAccountRegistry` taking a list
+of consumer account IDs and emitting both resource policies.
 
-### 2.4 KMS customer-managed key for CodeArtifact
+### Approval gate hardening
 
-The demo uses AWS-managed KMS. For compliance regimes (financial,
-healthcare), a customer-managed key is usually required.
+Beyond the docs/09 baseline (`UpdateRegistryRecordStatus` permission +
+MFA condition):
 
-```typescript
-// rough sketch for cdk/lib/codeartifact-stack.ts Phase 2
-const cmk = new kms.Key(this, 'CodeArtifactCmk', {
-  description: 'Customer-managed key for skills CodeArtifact domain',
-  enableKeyRotation: true,
-  alias: 'alias/skills-codeartifact',
-});
-new codeartifact.CfnDomain(this, 'Domain', {
-  domainName: 'skills-demo',
-  encryptionKey: cmk.keyArn,
-});
-```
-
-**TODO**: wire CMK into the CDK with rotation + access policies.
-
-### 2.5 Approval gate hardening
-
-Today: any principal with `bedrock-agentcore:UpdateRegistryRecordStatus`
-can approve. For separation of duty:
-
-- Use IAM **Conditions** to require MFA on the approve action
-- Wire **EventBridge** rule on `Skill record submitted for approval` →
+- Wire EventBridge on `Skill record submitted for approval` →
   Lambda → Slack interactive message → on approve, the Lambda calls
   `UpdateRegistryRecordStatus` with a service role
-- Audit via **CloudTrail Lake** — query
+- Audit via CloudTrail Lake — query
   `eventName = 'UpdateRegistryRecordStatus' AND status = 'APPROVED'`
 
-**TODO**: CDK + Lambda + Slack message template.
+**Phase 2 TODO**: CDK + Lambda + Slack message template.
 
-### 2.6 Skill content scanning before approval
+### Skill content scanning before approval
 
-Optional but useful. The community-standard scanner is
-`cisco-ai-skill-scanner` (the same one iflytek/skillhub uses).
-It runs as an HTTP service and consumes a SKILL.md path.
-
-Pipeline:
+Optional but recommended. Pipeline:
 
 ```
 PendingApproval → EventBridge → Lambda
@@ -154,20 +146,22 @@ PendingApproval → EventBridge → Lambda
                                     if dirty: tag + auto-reject with reason
 ```
 
-**TODO**: CDK module + Fargate task definition for the scanner sidecar.
+Community standard scanner: `cisco-ai-skill-scanner` (the same one
+iflytek/skillhub uses).
 
-### 2.7 VPC PrivateLink
+**Phase 2 TODO**: CDK module + Fargate task definition for the
+scanner sidecar.
 
-Both Bedrock AgentCore and CodeArtifact will support PrivateLink
-endpoints. In a private-deployment scenario this is the difference
-between "this skill never leaves the VPC" and "this skill traverses
-the public internet on the way to itself."
+### VPC PrivateLink
 
-**TODO**: VPC endpoint configuration in CDK once GA.
+When PrivateLink endpoints for AgentCore Registry GA, you'd want
+skills to never traverse public internet inside a VPC-only customer.
+
+**Phase 2 TODO**: VPC endpoint configuration in CDK once GA.
 
 ## Read-only audit policy reference
 
-Useful for security teams to inspect the registry without write:
+For security teams to inspect the registry without write:
 
 ```json
 {
@@ -189,4 +183,4 @@ Useful for security teams to inspect the registry without write:
 }
 ```
 
-→ Next: [future optimizations](./06-future-optimizations.md)
+→ Next: [extending to other resources](./07-extending-to-other-resources.md)

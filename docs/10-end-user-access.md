@@ -59,8 +59,9 @@ blueprint sets:
 ```
 
 The whole stack is **zero self-hosted code**. No Lambda. No proxy.
-The only thing you ship is a tiny client (`skill-cli`, ~150 LOC of
-Python) that runs the OAuth flow + keyring storage.
+The only thing you ship is a small client (`skill-cli`, ~500 LOC of
+Python including PKCE, retry/refresh, and keyring storage) that runs
+the OAuth flow.
 
 ## Why Identity Pool, not a custom JWT-to-IAM bridge
 
@@ -139,7 +140,8 @@ and `OidcDiscoveryUrl` — paste these into `skill-cli` env vars
 
 ## skill-cli — the end-user side
 
-`skills/skill-cli/skill_cli.py` is ~150 lines of Python. Authors
+`skills/skill-cli/skill_cli.py` is ~500 lines of Python (PKCE flow,
+keyring, refresh, error handling). Authors
 package and ship it via the regular skill publishing flow (it could
 itself be a skill if you want recursive composition, but it doesn't
 have to be).

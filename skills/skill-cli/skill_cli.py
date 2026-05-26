@@ -73,6 +73,15 @@ CREDS_KEY = "aws_creds_json"  # stores {AccessKeyId, SecretAccessKey, SessionTok
 CONFIG_PATH = Path.home() / ".skillpublish" / "skill-cli.toml"
 CALLBACK_PATH = "/callback"
 
+# Cognito requires the redirect_uri sent to /oauth2/authorize to *exactly*
+# match a registered callbackUrl on the app client (no port wildcarding,
+# unlike RFC 8252 §7.3 loopback equivalence). So this port has to be a
+# fixed value that matches what IdentityStack registers in CDK. If the
+# port is in use locally, --callback-port lets the user override it,
+# but the matching value must also be added to the Cognito app client's
+# callback URL list (otherwise OAuth fails with redirect_mismatch).
+DEFAULT_CALLBACK_PORT = 8765
+
 # Required keys; map TOML key → env var name
 _REQUIRED_KEYS = {
     "region": "SKILL_CLI_REGION",
@@ -185,21 +194,32 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
         pass  # silence default logging
 
 
-def login(cfg: dict) -> dict:
+def login(cfg: dict, callback_port: int = DEFAULT_CALLBACK_PORT) -> dict:
     """Run OAuth code flow with PKCE + state → return token bundle.
 
     Implements RFC 8252 (OAuth 2.0 for Native Apps) recommendations:
       - PKCE S256 (code_verifier + code_challenge)
       - CSRF state parameter, validated on callback
-      - Loopback redirect with OS-assigned port (avoids port conflicts)
+
+    Note on the loopback port: Cognito does NOT honor RFC 8252 §7.3
+    loopback port equivalence — the redirect_uri must literally match
+    a registered callbackUrl on the app client. So the port is a fixed
+    constant matching what `cdk/lib/identity-stack.ts` registers
+    (8765). If port 8765 is in use, override via `--callback-port`,
+    BUT you must also register that port's callback URL on the Cognito
+    app client (via `aws cognito-idp update-user-pool-client`).
     """
-    # Bind port 0 so the OS picks a free port. We then read it back and
-    # construct the redirect_uri matching what we registered with Cognito
-    # for development (http://localhost/callback with any port — Cognito
-    # treats them as equivalent for loopback redirects per RFC 8252 §7.3).
-    server = http.server.HTTPServer(("localhost", 0), _CallbackHandler)
-    actual_port = server.server_port
-    redirect_uri = f"http://localhost:{actual_port}{CALLBACK_PATH}"
+    redirect_uri = f"http://localhost:{callback_port}{CALLBACK_PATH}"
+    try:
+        server = http.server.HTTPServer(
+            ("localhost", callback_port), _CallbackHandler,
+        )
+    except OSError as e:
+        sys.exit(
+            f"could not bind localhost:{callback_port} ({e}). "
+            f"Is another OAuth tool running? Pass --callback-port <other> "
+            f"AND register that callback URL on your Cognito app client."
+        )
 
     code_verifier, code_challenge = _make_pkce_pair()
     state = secrets.token_urlsafe(32)
@@ -220,8 +240,11 @@ def login(cfg: dict) -> dict:
     server_thread = threading.Thread(target=server.handle_request, daemon=True)
     server_thread.start()
 
-    print(f"opening browser for SSO login (callback on port {actual_port})...")
-    webbrowser.open(auth_url)
+    print(f"opening browser for SSO login (callback on port {callback_port})...")
+    print(f"if no browser opens (e.g. on a headless server), open this URL manually:\n  {auth_url}\n")
+    opened = webbrowser.open(auth_url)
+    if not opened:
+        print("(webbrowser.open returned False — paste the URL above into a browser)")
     server_thread.join(timeout=300)
     server.server_close()
 
@@ -231,7 +254,10 @@ def login(cfg: dict) -> dict:
     code = _CallbackHandler.captured_code
     received_state = _CallbackHandler.captured_state
     if not code:
-        sys.exit("did not receive auth code (timeout or denied)")
+        sys.exit(
+            "did not receive auth code within 5 minutes (browser closed, "
+            "denied, or timed out). Re-run `skill-cli login`."
+        )
     if received_state != state:
         sys.exit(
             "OAuth state mismatch — possible CSRF attempt. "
@@ -253,16 +279,42 @@ def login(cfg: dict) -> dict:
     return tokens
 
 
+class TokenRefreshError(Exception):
+    """Raised when refresh_tokens() can't recover.
+
+    `recoverable=True` means transient (5xx, network) — caller should
+    retry. False means the refresh_token is dead — caller should
+    redirect the user to `skill-cli login`.
+    """
+    def __init__(self, message: str, recoverable: bool = False) -> None:
+        super().__init__(message)
+        self.recoverable = recoverable
+
+
 def refresh_tokens(cfg: dict, refresh_token: str) -> dict:
     """Use refresh_token to get new id_token without browser."""
     token_url = f"https://{cfg['user_pool_domain']}/oauth2/token"
-    resp = requests.post(token_url, data={
-        "grant_type": "refresh_token",
-        "client_id": cfg["client_id"],
-        "refresh_token": refresh_token,
-    }, headers={"Content-Type": "application/x-www-form-urlencoded"})
-    if resp.status_code != 200:
-        return {}
+    try:
+        resp = requests.post(token_url, data={
+            "grant_type": "refresh_token",
+            "client_id": cfg["client_id"],
+            "refresh_token": refresh_token,
+        }, headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=30)
+    except requests.RequestException as e:
+        raise TokenRefreshError(f"network error: {e}", recoverable=True) from e
+    if resp.status_code >= 500:
+        raise TokenRefreshError(
+            f"Cognito returned {resp.status_code} (transient). Try again.",
+            recoverable=True,
+        )
+    if resp.status_code >= 400:
+        # 4xx — refresh_token rejected. User must re-login.
+        raise TokenRefreshError(
+            f"refresh_token rejected ({resp.status_code}). "
+            "Run: skill-cli login",
+            recoverable=False,
+        )
     tokens = resp.json()
     tokens["expires_at"] = int(time.time()) + int(tokens.get("expires_in", 3600))
     # Cognito does not always return a new refresh_token; keep the old one.
@@ -336,7 +388,7 @@ def creds_expired(creds: dict, leeway_s: int = 60) -> bool:
 
 def cmd_login(args: argparse.Namespace) -> int:
     cfg = cognito_config()
-    tokens = login(cfg)
+    tokens = login(cfg, callback_port=args.callback_port)
     save_tokens(tokens)
     creds = jwt_to_aws_creds(cfg, tokens["id_token"])
     save_creds(creds)
@@ -359,10 +411,14 @@ def cmd_get_credentials(args: argparse.Namespace) -> int:
     if not tokens or not tokens.get("refresh_token"):
         sys.exit("no cached login. Run: skill-cli login")
 
-    new_tokens = refresh_tokens(cfg, tokens["refresh_token"])
+    try:
+        new_tokens = refresh_tokens(cfg, tokens["refresh_token"])
+    except TokenRefreshError as e:
+        # Recoverable (5xx, network) → AWS SDK will retry credential_process
+        # itself. Non-recoverable (4xx) → user must re-login.
+        sys.exit(str(e))
     if not new_tokens.get("id_token"):
-        sys.exit("refresh failed (refresh token may be expired). "
-                 "Run: skill-cli login")
+        sys.exit("refresh response missing id_token. Run: skill-cli login")
     save_tokens(new_tokens)
     creds = jwt_to_aws_creds(cfg, new_tokens["id_token"])
     save_creds(creds)
@@ -403,7 +459,15 @@ def cmd_whoami(args: argparse.Namespace) -> int:
 def main() -> int:
     p = argparse.ArgumentParser(prog="skill-cli")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("login", help="Browser SSO login + cache credentials")
+    p_login = sub.add_parser("login",
+                              help="Browser SSO login + cache credentials")
+    p_login.add_argument(
+        "--callback-port", type=int, default=DEFAULT_CALLBACK_PORT,
+        help=(
+            f"Local OAuth callback port (default: {DEFAULT_CALLBACK_PORT}). "
+            "Must match a callbackUrl registered on your Cognito app client."
+        ),
+    )
     sub.add_parser("get-credentials",
                     help="Print AWS credentials JSON (for credential_process)")
     sub.add_parser("logout", help="Clear keyring")

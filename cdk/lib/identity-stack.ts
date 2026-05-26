@@ -45,7 +45,7 @@ export interface IdentityStackProps extends cdk.StackProps {
  *      ▼
  *   CodeArtifact   (standard IAM auth — sees the assumed role)
  *
- * The end-user runs `skill-cli login` (a ~80-line Python tool, see
+ * The end-user runs `skill-cli login` (a ~500-line Python tool, see
  * skills/skill-cli/), which:
  *   1. opens browser for Cognito SSO
  *   2. trades id_token for temp IAM credentials via Identity Pool
@@ -140,9 +140,14 @@ export class IdentityStack extends cdk.Stack {
     });
     this.identityPoolId = identityPool.ref;
 
-    // Helper to build a role assumable by Identity Pool authenticated users
+    // Helper to build a role assumable by Identity Pool authenticated users.
+    //
+    // `repos === undefined` means "no CodeArtifact access at all" (Registry
+    // search only); `repos === []` means "all repos in the domain" (wildcard,
+    // for demo); `repos === ["foo", "bar"]` means scoped to those repo
+    // ARNs.
     const buildAuthenticatedRole = (
-      logicalId: string, repos: string[],
+      logicalId: string, repos: string[] | undefined,
     ): iam.Role => {
       const role = new iam.Role(this, logicalId, {
         assumedBy: new iam.FederatedPrincipal(
@@ -161,42 +166,51 @@ export class IdentityStack extends cdk.Stack {
         maxSessionDuration: cdk.Duration.hours(1),
       });
 
-      // CodeArtifact pull permissions
-      role.addToPolicy(new iam.PolicyStatement({
-        sid: 'CodeArtifactPullOnly',
-        actions: [
-          'codeartifact:GetAuthorizationToken',
-          'codeartifact:GetRepositoryEndpoint',
-          'codeartifact:ReadFromRepository',
-          'codeartifact:GetPackageVersionAsset',
-          'codeartifact:GetPackageVersionReadme',
-          'codeartifact:DescribePackage',
-          'codeartifact:DescribePackageVersion',
-          'codeartifact:ListPackageVersions',
-          'codeartifact:ListPackageVersionAssets',
-          'codeartifact:ListPackages',
-          'codeartifact:ListRepositories',
-        ],
-        resources: repos.length === 0
-          ? ['*']
+      // CodeArtifact pull permissions (skipped entirely when repos is undefined)
+      if (repos !== undefined) {
+        const caResources = repos.length === 0
+          ? [
+              `arn:aws:codeartifact:${this.region}:${this.account}:domain/${props.codeArtifactDomain}`,
+              `arn:aws:codeartifact:${this.region}:${this.account}:repository/${props.codeArtifactDomain}/*`,
+              `arn:aws:codeartifact:${this.region}:${this.account}:package/${props.codeArtifactDomain}/*/pypi/*/*`,
+            ]
           : repos.flatMap((repo) => [
               `arn:aws:codeartifact:${this.region}:${this.account}:domain/${props.codeArtifactDomain}`,
               `arn:aws:codeartifact:${this.region}:${this.account}:repository/${props.codeArtifactDomain}/${repo}`,
               `arn:aws:codeartifact:${this.region}:${this.account}:package/${props.codeArtifactDomain}/${repo}/pypi/*/*`,
-            ]),
-      }));
-      role.addToPolicy(new iam.PolicyStatement({
-        sid: 'CodeArtifactBearerToken',
-        actions: ['sts:GetServiceBearerToken'],
-        resources: ['*'],
-        conditions: {
-          StringEquals: {
-            'sts:AWSServiceName': 'codeartifact.amazonaws.com',
+            ]);
+        role.addToPolicy(new iam.PolicyStatement({
+          sid: 'CodeArtifactPullOnly',
+          actions: [
+            'codeartifact:GetAuthorizationToken',
+            'codeartifact:GetRepositoryEndpoint',
+            'codeartifact:ReadFromRepository',
+            'codeartifact:GetPackageVersionAsset',
+            'codeartifact:GetPackageVersionReadme',
+            'codeartifact:DescribePackage',
+            'codeartifact:DescribePackageVersion',
+            'codeartifact:ListPackageVersions',
+            'codeartifact:ListPackageVersionAssets',
+            'codeartifact:ListPackages',
+            'codeartifact:ListRepositories',
+          ],
+          resources: caResources,
+        }));
+        role.addToPolicy(new iam.PolicyStatement({
+          sid: 'CodeArtifactBearerToken',
+          actions: ['sts:GetServiceBearerToken'],
+          resources: ['*'],
+          conditions: {
+            StringEquals: {
+              'sts:AWSServiceName': 'codeartifact.amazonaws.com',
+            },
           },
-        },
-      }));
+        }));
+      }
 
-      // Registry read permissions (search + MCP invoke)
+      // Registry read permissions (search + MCP invoke). Always granted —
+      // the Registry is the discovery layer; users who can't see the
+      // catalog can't even know what to ask for.
       role.addToPolicy(new iam.PolicyStatement({
         sid: 'RegistryReadOnly',
         actions: [
@@ -213,10 +227,18 @@ export class IdentityStack extends cdk.Stack {
       return role;
     };
 
-    // Default authenticated role (skills-readers / catch-all)
+    // Default authenticated role (skills-readers / catch-all).
+    //
+    // - defaultGroupAccessAllRepos=true → wildcard CodeArtifact access on
+    //   all repos in this domain. Useful for single-team demo deployments.
+    // - default (false) → no CodeArtifact access at all; only Registry
+    //   search. Users in a specific group still get scoped CA access via
+    //   their group's role mapping. This is the safer production default —
+    //   a user who's authenticated but not in any team group can browse
+    //   the catalog but can't pull anything.
     const defaultRole = buildAuthenticatedRole(
       'DefaultReaderRole',
-      props.defaultGroupAccessAllRepos ? [] : [],
+      props.defaultGroupAccessAllRepos ? [] : undefined,
     );
 
     // Per-group roles
