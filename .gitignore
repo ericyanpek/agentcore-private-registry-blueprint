@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.whl
+*.tar.gz
+
+# venvs
+.venv/
+venv/
+env/
+
+# CDK
+cdk/node_modules/
+cdk/cdk.out/
+cdk/.cdk.staging/
+cdk/*.js
+cdk/*.d.ts
+!cdk/bin/blueprint.js
+!cdk/lib/*.js
+# (above two negations cancel out — we exclude all generated .js by default)
+cdk/cdk.context.json
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Local config
+.env
+.env.local
+*.local
+
+# AWS
+.aws-sam/

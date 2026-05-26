@@ -1,0 +1,22 @@
+{
+  "app": "npx ts-node --prefer-ts-exts bin/blueprint.ts",
+  "watch": {
+    "include": ["**"],
+    "exclude": [
+      "README.md",
+      "cdk*.json",
+      "**/*.d.ts",
+      "**/*.js",
+      "tsconfig.json",
+      "package*.json",
+      "yarn.lock",
+      "node_modules"
+    ]
+  },
+  "context": {
+    "blueprintRegion": "us-east-1",
+    "domainName": "skills-demo",
+    "repositoryName": "skills-prod",
+    "registryName": "skills-demo-registry"
+  }
+}
