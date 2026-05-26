@@ -67,8 +67,9 @@ def build_skill_definition() -> str:
       - one or more package distributions (registryType + identifier)
       - vendor-specific extensions in _meta (reverse-DNS namespaced)
     """
+    account_id = boto3.client("sts").get_caller_identity()["Account"]
     code_artifact_index = (
-        f"https://{CODE_ARTIFACT_DOMAIN}-984072314535.d.codeartifact."
+        f"https://{CODE_ARTIFACT_DOMAIN}-{account_id}.d.codeartifact."
         f"{REGION}.amazonaws.com/pypi/{CODE_ARTIFACT_REPO}/simple/"
     )
     definition = {
@@ -111,7 +112,7 @@ def wait_for_state(client, registry_id: str, record_id: str, target: str,
     while time.time() < deadline:
         rec = client.get_registry_record(
             registryId=registry_id, recordId=record_id
-        ).get("registryRecord", {})
+        )
         last = rec
         if rec.get("status") == target:
             return rec

@@ -1,8 +1,8 @@
 {
-  "name": "agentcore-private-skills-blueprint-cdk",
+  "name": "agentcore-private-registry-blueprint-cdk",
   "version": "0.1.0",
   "private": true,
-  "description": "One-click CDK for the AgentCore private skills blueprint",
+  "description": "One-click CDK for the AgentCore private registry blueprint",
   "license": "Apache-2.0",
   "bin": {
     "blueprint": "bin/blueprint.js"

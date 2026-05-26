@@ -14,10 +14,11 @@ configure as just another MCP server.
 https://bedrock-agentcore.{region}.amazonaws.com/registries/{registryId}/mcp
 ```
 
-For our demo:
+The CDK stack outputs the full URL as `McpEndpoint`. Substitute your
+own values for `{region}` and `{registryId}`:
 
 ```
-https://bedrock-agentcore.us-east-1.amazonaws.com/registries/O43i14O4ZSfhPm8p/mcp
+https://bedrock-agentcore.us-east-1.amazonaws.com/registries/<registryId>/mcp
 ```
 
 This endpoint speaks **MCP spec 2025-11-25**. It exposes exactly one
@@ -59,7 +60,7 @@ Code speaks to it) and HTTPS-with-SigV4 (what the registry expects).
       "command": "uvx",
       "args": [
         "mcp-proxy-for-aws@latest",
-        "https://bedrock-agentcore.us-east-1.amazonaws.com/registries/O43i14O4ZSfhPm8p/mcp",
+        "https://bedrock-agentcore.us-east-1.amazonaws.com/registries/<registryId>/mcp",
         "--service", "bedrock-agentcore",
         "--region", "us-east-1",
         "--profile", "my-profile"
@@ -79,7 +80,7 @@ connect over HTTP directly with OAuth2 tokens — no proxy needed:
 
 ```bash
 aws bedrock-agentcore-control update-registry \
-  --registry-id O43i14O4ZSfhPm8p \
+  --registry-id <registryId> \
   --authorizer-configuration '{
     "customJWTAuthorizer": {
       "discoveryUrl": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx/.well-known/openid-configuration",
@@ -95,7 +96,7 @@ aws bedrock-agentcore-control update-registry \
   "mcpServers": {
     "private-skills-registry": {
       "type": "http",
-      "url": "https://bedrock-agentcore.us-east-1.amazonaws.com/registries/O43i14O4ZSfhPm8p/mcp",
+      "url": "https://bedrock-agentcore.us-east-1.amazonaws.com/registries/<registryId>/mcp",
       "oauth": {
         "clientId": "abcdef123456",
         "callbackPort": 8765
@@ -179,7 +180,7 @@ Verify the proxy can reach the endpoint:
 
 ```bash
 curl -sS -X POST \
-  "https://bedrock-agentcore.us-east-1.amazonaws.com/registries/O43i14O4ZSfhPm8p/mcp" \
+  "https://bedrock-agentcore.us-east-1.amazonaws.com/registries/<registryId>/mcp" \
   -H "Content-Type: application/json" \
   -H "X-Amz-Security-Token: ${AWS_SESSION_TOKEN}" \
   --aws-sigv4 "aws:amz:us-east-1:bedrock-agentcore" \

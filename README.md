@@ -98,7 +98,7 @@ across all four types lives in
 
 ```bash
 # 1. Deploy infra (CodeArtifact domain + repo, Agent Registry)
-cd cdk && npm install && npx cdk deploy
+cd cdk && npm install && npx cdk deploy --all
 
 # 2. Build & publish the example skill to CodeArtifact
 cd ../skill-package && python3 -m build
@@ -109,6 +109,7 @@ python3 -m twine upload --repository codeartifact dist/*
 cd ../scripts
 python3 02_register_skill.py
 python3 03_approve_skill.py
+sleep 30   # the search index takes 15-30s to pick up a freshly approved record
 python3 04_consume_skill.py
 ```
 

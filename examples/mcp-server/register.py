@@ -31,6 +31,11 @@ def find_registry_id(client) -> str:
 
 def main() -> None:
     body = json.loads((HERE / "example-record.json").read_text())
+    if "example.internal" in json.dumps(body):
+        sys.exit(
+            "example-record.json points at example.internal — "
+            "swap in a real MCP server endpoint before running."
+        )
     client = boto3.client("bedrock-agentcore-control", region_name=REGION)
     rid = find_registry_id(client)
 
@@ -67,10 +72,13 @@ def main() -> None:
     client.submit_registry_record_for_approval(
         registryId=rid, recordId=record_id
     )
-    print("submitted for approval")
-    print("approve via:")
-    print(f"  python3 ../../scripts/03_approve_skill.py "
-          f"# (parameterize with --record-id {record_id})")
+    print(f"submitted for approval (record id: {record_id})")
+    print("approve via the AgentCore console, or:")
+    print(
+        "  aws bedrock-agentcore-control update-registry-record-status \\\n"
+        f"    --registry-id {rid} --record-id {record_id} \\\n"
+        "    --status APPROVED --status-reason 'reviewed'"
+    )
 
 
 if __name__ == "__main__":

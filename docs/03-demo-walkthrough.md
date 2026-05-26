@@ -1,6 +1,6 @@
 # Demo walkthrough — publish, approve, discover, install
 
-> Verified end-to-end in account 984072314535, us-east-1, on 2026-05-25.
+> Verified end-to-end in a sandbox account, us-east-1, on 2026-05-25.
 > Expected wall-clock time: 5-10 minutes.
 
 This page is the operations manual. Run from the repo root unless noted.

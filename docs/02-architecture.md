@@ -80,7 +80,9 @@ for the hybrid pattern.
 
 ### Skill record — anatomy of an `AGENT_SKILLS` descriptor
 
-A real published record from this repo:
+A real published record from this repo (inner `inlineContent` strings
+are reformatted across multiple lines for readability — they're
+single-line JSON-encoded strings on the wire):
 
 ```json
 {
@@ -111,7 +113,7 @@ A real published record from this repo:
               \"domain\": \"skills-demo\",
               \"repository\": \"skills-prod\",
               \"region\": \"us-east-1\",
-              \"indexUrl\": \"https://skills-demo-984072314535.d.codeartifact.us-east-1.amazonaws.com/pypi/skills-prod/simple/\"
+              \"indexUrl\": \"https://skills-demo-123456789012.d.codeartifact.us-east-1.amazonaws.com/pypi/skills-prod/simple/\"
             },
             \"com.example.activate\": {
               \"postInstallCommand\": \"install-aws-cost-anomaly-triage\",

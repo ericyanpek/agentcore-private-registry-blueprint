@@ -181,3 +181,5 @@ this blueprint, open a PR with:
 - A doc page under `docs/` cross-referenced from the README status
   table
 - Either an automated test or a manual verification log
+
+→ Next: [extending to other resources](./07-extending-to-other-resources.md)
