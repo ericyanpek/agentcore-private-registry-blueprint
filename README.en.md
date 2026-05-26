@@ -128,6 +128,48 @@ python3 04_consume_skill.py
 After step 3, `~/.claude/skills/aws-cost-anomaly-triage/` exists and
 Claude Code automatically lists the skill alongside its built-ins.
 
+## How authors publish — with `publish-skill` (the meta-skill)
+
+The blueprint ships a special skill at **`skills/publish-skill/`**.
+It is itself a skill, but its job is to **help authors publish other
+skills to the Registry**. Once installed in `~/.claude/skills/`, an
+author just says "publish this skill" in Claude Code and the entire
+build → upload → register → submit-for-approval flow runs.
+
+```bash
+# one-time setup (per machine)
+mkdir -p ~/.skillpublish && cat > ~/.skillpublish/config.toml <<'EOF'
+[default]
+region = "us-east-1"
+codeartifact_domain = "skills-demo"
+codeartifact_repository = "skills-prod"
+registry_name = "skills-demo-registry"
+EOF
+
+# every time you publish a new skill
+cd path/to/your-new-skill/      # has pyproject.toml + src/<pkg>/skill_files/SKILL.md
+# In Claude Code, say: "publish this skill"
+# Claude triggers the publish-skill skill, which runs publish.py:
+#   build → twine upload → CreateRegistryRecord → stop at DRAFT for review
+```
+
+**Permission is enforced by IAM, not by the skill.** Even if
+`publish-skill` is installed on a machine, **a user without
+`codeartifact:PublishPackageVersion` and
+`bedrock-agentcore:CreateRegistryRecord` is denied by IAM.** That's
+the real guardrail; the skill is the convenience layer that lowers
+the friction.
+
+Four personas + the IAM policies that map to them are documented
+in [docs/09-publishing-iam.md](docs/09-publishing-iam.md):
+- **Reader**: everyone — search + install approved skills
+- **Publisher**: scoped to a team — create + submit-for-approval
+- **Curator**: a small list — approve / reject (**Publishers
+  cannot approve their own records** by separation of duty)
+- **Admin**: very few — manages the registry itself
+
+Full author-facing doc: [docs/08-publishing-workflow.md](docs/08-publishing-workflow.md).
+
 ## Mental model — what Registry is and isn't
 
 The single most common misconception about AWS Agent Registry is
@@ -231,7 +273,9 @@ The calls are KB-sized metadata lookups, not artifact transfers.
 │   ├── 04-dynamic-discovery.md             # MCP endpoint: how Claude Code finds skills
 │   ├── 05-auth-placeholder.md              # IAM today, JWT/OIDC TODO
 │   ├── 06-future-optimizations.md          # cross-account, KMS CMK, EventBridge, OCI
-│   └── 07-extending-to-other-resources.md  # MCP, KBs, Lambda tools, guardrails, etc.
+│   ├── 07-extending-to-other-resources.md  # MCP, KBs, Lambda tools, guardrails, etc.
+│   ├── 08-publishing-workflow.md           # author-facing: how to publish your own skill
+│   └── 09-publishing-iam.md                # platform-team-facing: 4-tier IAM policies
 ├── cdk/                               # one-click TypeScript CDK
 │   ├── bin/blueprint.ts
 │   ├── lib/codeartifact-stack.ts
@@ -244,6 +288,11 @@ The calls are KB-sized metadata lookups, not artifact transfers.
 │       └── skill_files/
 │           ├── SKILL.md
 │           └── resources/*.md
+├── skills/                            # blueprint-bundled meta-skill
+│   └── publish-skill/                 # the skill that publishes other skills
+│       ├── SKILL.md
+│       ├── resources/publish-skill-runbook.md
+│       └── scripts/publish.py
 ├── scripts/                           # boto3 publish/approve/consume (Day-1)
 │   ├── 01_create_registry.py
 │   ├── 02_register_skill.py
@@ -267,6 +316,7 @@ Day-1 (Skills, end-to-end):
 | Publish + approve + consume scripts | ✅ Tested end-to-end |
 | MCP endpoint dynamic discovery | ✅ Documented; client config example |
 | IAM auth | ✅ Working |
+| `publish-skill` meta-skill (parameterized publisher + 4-tier IAM) | ✅ Script preflight verified; docs/08+09 written |
 
 Day-N extensions:
 
