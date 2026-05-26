@@ -266,7 +266,7 @@ Day-1（Skills，端到端）：
 | MCP endpoint 动态发现 | ✅ 文档化；含客户端配置示例 |
 | IAM 认证 | ✅ 可工作 |
 | `publish-skill` meta-skill（参数化发布器 + 四档 IAM 策略） | ✅ 脚本已 preflight 通过；docs/08+09 已写 |
-| 终端用户访问（Cognito User Pool → Identity Pool → 临时 IAM）—— **间接** JWT 路径 | ✅ CDK 通过 cdk synth；`skill-cli` 客户端可工作；docs/10 已写 |
+| 终端用户访问（Cognito User Pool → Identity Pool → 临时 IAM）—— **间接** JWT 路径 | ✅ CDK 通过 cdk synth；`skill-cli` 客户端可工作；docs/10 已写；**`examples/cognito-end-to-end/` 端到端实跑过**（含正反两路） |
 
 Day-N 扩展：
 

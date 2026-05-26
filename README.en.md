@@ -332,7 +332,7 @@ Day-1 (Skills, end-to-end):
 | MCP endpoint dynamic discovery | ✅ Documented; client config example |
 | IAM auth | ✅ Working |
 | `publish-skill` meta-skill (parameterized publisher + 4-tier IAM) | ✅ Script preflight verified; docs/08+09 written |
-| End-user access (Cognito User Pool → Identity Pool → temporary IAM) — **indirect** JWT path | ✅ CDK synth-clean; `skill-cli` client works; docs/10 written |
+| End-user access (Cognito User Pool → Identity Pool → temporary IAM) — **indirect** JWT path | ✅ CDK synth-clean; `skill-cli` client works; docs/10 written; **`examples/cognito-end-to-end/` runs live with both positive and negative tests** |
 
 Day-N extensions:
 

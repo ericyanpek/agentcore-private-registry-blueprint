@@ -10,6 +10,7 @@ demo creates. Status notation:
 
 | Example | Type | Status |
 |---|---|---|
+| [`cognito-end-to-end/`](./cognito-end-to-end/) | End-user identity layer (Cognito → Identity Pool → IAM → CodeArtifact) | ✅ Verified |
 | [`mcp-server/`](./mcp-server/) | `descriptorType: MCP` | 📘 |
 | [`knowledge-base/`](./knowledge-base/) | `descriptorType: CUSTOM` (`kind: knowledge-base`) | 📘 |
 | [`lambda-tool/`](./lambda-tool/) | `descriptorType: CUSTOM` (`kind: lambda-tool`) | 📘 |
