@@ -142,6 +142,97 @@ Claude Code automatically lists the skill alongside its built-ins.
 
 [→ Full architecture: `docs/02-architecture.md`](docs/02-architecture.md)
 
+## Mental model — what Registry is and isn't
+
+The single most common misconception about AWS Agent Registry is
+that it's a "skill download service". It isn't. Get this right and
+the rest of the design follows.
+
+**Registry is a discovery + governance service for metadata. It does
+not host artifacts and it does not install anything.**
+
+The MCP endpoint a registry exposes contains exactly **one** tool:
+
+```
+search_registry_records(searchQuery, maxResults, filter)
+```
+
+No `install`, no `download`, no `activate`. Intentional. Compare to
+how npm works:
+
+| | npm ecosystem | Agent Registry ecosystem |
+|---|---|---|
+| Search service | `registry.npmjs.org` | Agent Registry MCP endpoint |
+| Search command | `npm search` | `search_registry_records` |
+| Install command | `npm install` (CLI, client-side) | `pip install` (run by Claude Code's Bash tool) |
+| Local install dir | `~/.node_modules/` | `~/.claude/skills/` |
+| Auto-load installed | Node `require()` resolution | Claude Code scans `~/.claude/skills/` on every prompt |
+
+So when Claude Code uses a private skill, three independent things
+happen — and they are **decoupled by design**:
+
+```
+1. DISCOVER (remote, metadata-only, KB-sized)
+   Claude Code → Registry MCP → search_registry_records
+   Returns: SKILL.md + packages[] pointers
+   No artifact transferred.
+
+2. DECIDE (Claude reasoning, no API call)
+   Claude reads the skillMd, decides whether to:
+     (a) inline the SKILL.md into context for one-shot use, OR
+     (b) install persistently via Bash, OR
+     (c) skip — already installed locally
+
+3. INSTALL (only if 2b, runs Claude Code's built-in Bash tool)
+   pip install <pkg> from CodeArtifact + post-install copy
+   Idempotent: re-running pip on a same-version package is a no-op.
+```
+
+The Registry never *pushes* a skill to your machine. The Registry
+never knows whether you have a skill installed locally. Those two
+concerns belong to the agent runtime (Claude Code) and to your
+consumer scripts.
+
+### Two layers of "discovery", running in parallel
+
+```
+┌──────────────────────────────────────┐
+│ Remote layer                         │
+│ Registry MCP / SDK                   │
+│ → returns metadata for the org's     │
+│   approved catalog                   │
+│ → unaware of your local filesystem   │
+└──────────────────────────────────────┘
+                 ┊  no communication
+                 ┊
+┌──────────────────────────────────────┐
+│ Local layer                          │
+│ Claude Code / Bedrock Runtime        │
+│ → scans ~/.claude/skills/ on every   │
+│   prompt, lists what it finds        │
+│ → unaware of the Registry            │
+└──────────────────────────────────────┘
+```
+
+The two layers don't talk to each other. A skill installed yesterday
+is found by the local layer instantly, with **zero remote calls**. A
+skill the team just published is found by the remote layer, with
+**zero local effect** until someone (or some agent) decides to
+install it.
+
+### Cost of each interaction
+
+| Scenario | What runs | Bytes over the wire |
+|---|---|---|
+| Skill already in `~/.claude/skills/` | Local scan | 0 |
+| Search returns a skill, Claude inlines into context | `search_registry_records` | ~5KB metadata |
+| Search → decide to install | search + `pip install` from CodeArtifact | ~5KB metadata + ~15KB wheel |
+| Re-run install of same version | `pip install` no-ops via local cache | 0 |
+| Registry has v0.2.0, local has v0.1.0 | search + `pip install --upgrade` | metadata + delta |
+
+This is why "every Claude Code session calls the Registry" is fine.
+The calls are KB-sized metadata lookups, not artifact transfers.
+
 ## Repository layout
 
 ```

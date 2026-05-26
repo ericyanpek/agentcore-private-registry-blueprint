@@ -40,6 +40,12 @@
                           Auto-discovered by Claude Code
 ```
 
+> **Before this — read [the mental model section in the README](../README.md#mental-model--what-registry-is-and-isnt).**
+> The single most common misconception is treating Registry as a
+> "skill download service". It's metadata only; install happens via
+> Claude Code's Bash tool calling `pip install` (or whatever
+> activation `_meta` specifies).
+
 ## Service-by-service mapping
 
 ### CodeArtifact — the artifact backend
