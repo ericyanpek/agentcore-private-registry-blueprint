@@ -67,6 +67,16 @@ verify against your own Claude Code install.
 
 [→ Full rationale: `docs/01-why-private-skills.md`](docs/01-why-private-skills.md)
 
+## Architecture (1-minute version)
+
+<p align="center">
+  <img src="docs/images/architecture.svg" alt="Architecture overview" width="900">
+</p>
+
+Four actors: **Author / CI** pushes the skill to two backends in parallel — the artifact (PyPI package) goes to **CodeArtifact**, the metadata goes to the **Agent Registry**. The **consumer** (a developer, or Claude Code / AgentCore Runtime itself) searches the Registry, follows the `packages[]` pointer in the returned metadata to `pip install` from CodeArtifact, lands the files under `~/.claude/skills/<name>/`, and the agent picks the skill up on its next prompt.
+
+[→ Full architecture: `docs/02-architecture.md`](docs/02-architecture.md)
+
 ## What's in this blueprint
 
 The Day-1 scope (verified end-to-end):
@@ -117,32 +127,6 @@ python3 04_consume_skill.py
 
 After step 3, `~/.claude/skills/aws-cost-anomaly-triage/` exists and
 Claude Code automatically lists the skill alongside its built-ins.
-
-## Architecture (1-minute version)
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  Author / CI                                              │
-│  pyproject.toml + SKILL.md + resources                    │
-└─────────┬─────────────────────────────────────┬───────────┘
-          │ twine upload                        │ create_registry_record
-          ▼                                     ▼
-┌────────────────────────┐         ┌────────────────────────┐
-│ CodeArtifact (PyPI)    │         │ Bedrock AgentCore      │
-│ Private artifact store │◀────────│ Registry               │
-│ KMS at-rest, IAM auth  │ packages│ Metadata + governance  │
-└────────────────────────┘         └────────────────────────┘
-          ▲                                     ▲
-          │ pip install                         │ search_registry_records
-          │                                     │   (boto3 OR MCP endpoint)
-          └────────────┬────────────────────────┘
-                       ▼
-            Consumer: developer / agent
-            ─→ install-aws-cost-anomaly-triage
-            ─→ ~/.claude/skills/<name>/  (immediately discoverable)
-```
-
-[→ Full architecture: `docs/02-architecture.md`](docs/02-architecture.md)
 
 ## Mental model — what Registry is and isn't
 
