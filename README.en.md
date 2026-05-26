@@ -160,6 +160,16 @@ cd path/to/your-new-skill/      # has pyproject.toml + src/<pkg>/skill_files/SKI
 the real guardrail; the skill is the convenience layer that lowers
 the friction.
 
+> **About Readers (regular end-users)**: The IAM model above is for
+> **Publisher / Curator / Admin** — small, trusted, AWS-credentialed
+> roles. **Business users, analysts, support agents** — large
+> populations who cannot hold AWS credentials — go through a
+> **Cognito User Pool + Identity Pool** path that exchanges JWTs for
+> short-lived IAM credentials. Their machines have zero AWS config
+> files; secrets live in the OS keyring. Experience: "open browser,
+> SSO login once, transparent for 30 days." See
+> [docs/10-end-user-access.md](docs/10-end-user-access.md).
+
 Four personas + the IAM policies that map to them are documented
 in [docs/09-publishing-iam.md](docs/09-publishing-iam.md):
 - **Reader**: everyone — search + install approved skills
@@ -275,7 +285,8 @@ The calls are KB-sized metadata lookups, not artifact transfers.
 │   ├── 06-future-optimizations.md          # cross-account, KMS CMK, EventBridge, OCI
 │   ├── 07-extending-to-other-resources.md  # MCP, KBs, Lambda tools, guardrails, etc.
 │   ├── 08-publishing-workflow.md           # author-facing: how to publish your own skill
-│   └── 09-publishing-iam.md                # platform-team-facing: 4-tier IAM policies
+│   ├── 09-publishing-iam.md                # platform-team-facing: 4-tier IAM policies
+│   └── 10-end-user-access.md               # end-users via Cognito, no AWS creds on machines
 ├── cdk/                               # one-click TypeScript CDK
 │   ├── bin/blueprint.ts
 │   ├── lib/codeartifact-stack.ts
@@ -288,11 +299,15 @@ The calls are KB-sized metadata lookups, not artifact transfers.
 │       └── skill_files/
 │           ├── SKILL.md
 │           └── resources/*.md
-├── skills/                            # blueprint-bundled meta-skill
-│   └── publish-skill/                 # the skill that publishes other skills
-│       ├── SKILL.md
-│       ├── resources/publish-skill-runbook.md
-│       └── scripts/publish.py
+├── skills/                            # blueprint-bundled meta-skill + client
+│   ├── publish-skill/                 # the skill that publishes other skills
+│   │   ├── SKILL.md
+│   │   ├── resources/publish-skill-runbook.md
+│   │   └── scripts/publish.py
+│   └── skill-cli/                     # end-user JWT→IAM bridge CLI
+│       ├── skill_cli.py
+│       ├── pyproject.toml
+│       └── README.md
 ├── scripts/                           # boto3 publish/approve/consume (Day-1)
 │   ├── 01_create_registry.py
 │   ├── 02_register_skill.py
@@ -317,6 +332,7 @@ Day-1 (Skills, end-to-end):
 | MCP endpoint dynamic discovery | ✅ Documented; client config example |
 | IAM auth | ✅ Working |
 | `publish-skill` meta-skill (parameterized publisher + 4-tier IAM) | ✅ Script preflight verified; docs/08+09 written |
+| End-user JWT access (Cognito User Pool + Identity Pool) | ✅ CDK synth-clean; `skill-cli` client works; docs/10 written |
 
 Day-N extensions:
 

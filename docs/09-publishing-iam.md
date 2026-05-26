@@ -28,10 +28,17 @@ TPM, etc.
 is both a Publisher of finops skills and a Curator of finops skills).
 That's fine; the policies are additive.
 
-## Policy 1 — Reader (broad)
+## Policy 1 — Reader (CI / service accounts only)
 
-For every engineer in the org. Probably attached to a baseline
-"Developer" managed permission set in IAM Identity Center.
+> **Important:** This IAM policy is for **CI pipelines, service
+> accounts, and developers who already have IAM Identity Center**.
+> For human end-users (analysts, business users, most developers),
+> the recommended path is **Cognito User Pool + Identity Pool**
+> documented in [docs/10-end-user-access.md](./10-end-user-access.md).
+> That path issues the same set of permissions but via Cognito group
+> → IAM role mapping, with no AWS credentials on user machines.
+
+For service accounts and CI principals only:
 
 ```json
 {

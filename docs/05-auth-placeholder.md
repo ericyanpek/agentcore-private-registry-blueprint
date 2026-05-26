@@ -1,8 +1,15 @@
-# Auth & permissions — Phase 2 placeholder
+# Auth & permissions — placeholder + cross-references
 
-> **Status: placeholder.** The current blueprint uses broad
-> `bedrock-agentcore:*` and `codeartifact:*` for demo simplicity.
-> Production hardening is tracked here and is the next thing to build.
+> **Status:** Hardening still in progress, but the major item — end-user
+> JWT-based access via Cognito — is now spec'd and built. See:
+>   - [docs/10-end-user-access.md](./10-end-user-access.md) for the
+>     end-user (Reader) path with Cognito User Pool + Identity Pool
+>   - [docs/09-publishing-iam.md](./09-publishing-iam.md) for the
+>     Publisher / Curator / Admin IAM roles
+>
+> The current Day-1 demo still uses broad `bedrock-agentcore:*` and
+> `codeartifact:*` so an SA can run it end-to-end without hand-crafting
+> policies. Items below are remaining hardening for production.
 
 ## What's working today (Phase 1)
 
