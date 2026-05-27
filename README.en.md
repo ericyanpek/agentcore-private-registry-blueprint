@@ -231,6 +231,17 @@ never knows whether you have a skill installed locally. Those two
 concerns belong to the agent runtime (Claude Code) and to your
 consumer scripts.
 
+> **The same decoupling extends to the server side**: the Registry
+> is unaware of *where* the resource a record describes actually
+> runs. An `MCP` record's server can live in AgentCore Runtime,
+> Lambda, ECS, your own Kubernetes, GovCloud, or another cloud
+> entirely — the Registry indexes the metadata and enforces
+> governance, nothing else. AWS frames this in the launch post as
+> "works with any MCP Server, Agent, Skill or Custom Resource,
+> deployed on AWS, On-Prem or on any other Cloud environment".
+> Treat the Registry as a cross-environment catalog, not as an AWS
+> runtime accessory.
+
 ### Two layers of "discovery", running in parallel
 
 ```

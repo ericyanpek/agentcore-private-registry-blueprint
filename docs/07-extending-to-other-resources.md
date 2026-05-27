@@ -31,6 +31,60 @@ Two categories.
 | `MCP` | MCP server.json open spec | An MCP server you've stood up (in AgentCore Runtime, Lambda, ECS, or third-party host) |
 | `A2A` | Google A2A Agent Card | An agent that speaks A2A protocol |
 
+### MCP and A2A records get URL-based discovery for free
+
+For `MCP` and `A2A` records there is a second registration path
+that the Day-1 demo doesn't use but is the right answer for most
+in-house MCP servers and A2A agents: instead of submitting a JSON
+body, you submit a **URL**. The Registry fetches the server.json /
+agent card itself, validates it, and produces a record from it. When
+the source endpoint's metadata changes, the Registry re-syncs and
+emits a new revision — no manual update.
+
+```python
+client.create_registry_record(
+    registryId=rid,
+    name="example-mcp",
+    descriptorType="MCP",
+    recordVersion="1.0.0",
+    synchronizationType="URL",
+    synchronizationConfiguration={
+        "fromUrl": {
+            "url": "https://mcp.example.internal/v1/.well-known/mcp/server-card.json",
+            # Optional — for sources behind OAuth2:
+            # "credentialProviderConfigurations": [{
+            #     "credentialProviderType": "OAUTH",
+            #     "credentialProvider": {"oauthCredentialProvider": {
+            #         "providerArn": "<AgentCore Identity provider ARN>",
+            #         "grantType": "CLIENT_CREDENTIALS"
+            #     }}
+            # }]
+        }
+    },
+)
+```
+
+**Why this matters for org rollout**: under URL discovery, the team
+that operates an MCP server **does not need to write any publish
+pipeline**. They expose a well-known endpoint with appropriate ACLs;
+the Registry keeps itself fresh. Compare to AGENT_SKILLS records,
+which always require an explicit publish step (`twine upload` +
+`CreateRegistryRecord`) because the artifact backend (CodeArtifact)
+is separate from the metadata source.
+
+| | Path A — inline JSON | Path B — URL sync |
+|---|---|---|
+| Source of truth | The JSON you submitted | Live MCP/A2A endpoint |
+| Drift handling | Manual `update-registry-record` | Automatic re-sync, new revision |
+| Auth on fetch | N/A | Public, IAM-signed, or OAuth2 (via AgentCore Identity credential provider) |
+| Best for | Third-party MCP, fixed snapshots, air-gapped publishing | In-house MCP/A2A, anything iterating frequently |
+| Server team writes publish code? | Yes (one-time inline JSON) | No |
+
+A working URL-sync example lives at
+[`examples/mcp-server/register-url-sync.py`](../examples/mcp-server/register-url-sync.py).
+URL discovery does **not** apply to `AGENT_SKILLS` or `CUSTOM`
+records — the Registry has nothing to fetch in those cases.
+
 **CUSTOM** is the escape hatch:
 
 | Resource | Why register it | Owner persona |

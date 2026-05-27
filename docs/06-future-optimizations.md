@@ -156,12 +156,103 @@ span. Aggregated:
 OTEL hookpoint exists already (Bedrock AgentCore emits OTEL).
 The wiring + dashboard is the missing piece.
 
+> Note: AWS has publicly announced that observability data
+> (invocation counts, latency, usage patterns) will flow directly
+> into registry records — see the *AWS-announced roadmap items*
+> section above. If you're considering this, wait for AWS to ship
+> it natively rather than building a custom OTEL aggregator that
+> duplicates the future managed feature.
+
 ### Inter-skill dependency model
 
 Today, a skill can declare PyPI dependencies via `pyproject.toml`,
 but it cannot declare "I depend on the `aws-base-context` skill
 being installed first." A real dependency graph between skills is
 a known unsolved problem in the agent skills community.
+
+## Operational guardrails worth pre-planning
+
+### Service quotas — `SearchRegistryRecords` defaults to 5 TPS
+
+The blueprint advocates a discovery model where every Claude Code
+prompt may call `search_registry_records`. That works at small
+scale, but the **preview default for `SearchRegistryRecords` and
+`InvokeRegistryMcp` is 5 TPS per account, region-wide** ([service
+quotas reference](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/bedrock-agentcore-limits.html)).
+For a 100-developer IDE rollout where each session opens with a
+search, that's the first thing you'll hit.
+
+Both quotas are adjustable via Service Quotas console. Two things to
+do before going wide:
+
+1. Submit a quota increase request **per region** for each of:
+   `SearchRegistryRecords`, `InvokeRegistryMcp`,
+   `CreateRegistryRecord`, `UpdateRegistryRecordStatus`.
+2. Add client-side caching on the consumer side. Search results are
+   metadata (a few KB per record) and APPROVED records are
+   eventually consistent anyway; a 60-90s TTL on the search response
+   eliminates the pathological "every prompt re-searches identically"
+   pattern without compromising freshness.
+
+Backfill jobs (importing existing assets into a new registry) bump
+into the **CreateRegistryRecord 5 TPS** ceiling fast. Throttle from
+the client (e.g., a token bucket at 4 TPS) — it's cheaper than
+asking for a quota that you'll only need for one afternoon.
+
+## AWS-announced roadmap items (track these)
+
+These were called out in the AWS launch announcements and the
+service team's public talks. They aren't in the service today, but
+they're real enough to plan around — when they ship, they may
+deprecate or simplify pieces of the Phase 2 list above.
+
+### Cross-registry federation
+
+> "search across multiple registries as one"
+> — *AWS Launch blog (2026-04-09)*
+
+Today, a `SearchRegistryRecords` call accepts exactly one
+`registryId`. The blueprint's "central registry, multi-account
+consumers" pattern (above) handles cross-account *consumption* but
+not cross-registry *search*. AWS-shipped federation would replace
+the client-side fan-out workaround.
+
+Implication for this blueprint: the multi-account fan-out section
+above is a transitional pattern. Build it minimally; don't invest
+heavily in client-side aggregation logic that a managed federation
+will obsolete.
+
+### Auto-indexing on deploy
+
+> "automatic indexing of agents the moment they deploy"
+
+For agents and MCP servers running on AgentCore Runtime / Gateway,
+AWS plans to surface them in the registry without an explicit
+`CreateRegistryRecord` call. URL-based discovery (already shipped
+for `MCP` / `A2A`) is the precursor to this — it's the same
+mechanism, just initiated by the Registry team's catalog rather than
+by the publisher.
+
+Implication: `AGENT_SKILLS` records — being PyPI-backed and not tied
+to a runtime — will likely **continue to require explicit
+publishing**. So the `publish-skill` meta-skill and the IAM model
+behind it stay relevant; the auto-indexing future doesn't
+invalidate them, just narrows them to the skill case.
+
+### Observability data flowing into records
+
+> "operational data from AgentCore Observability — invocation
+> counts, latency, uptime, usage patterns — directly into registry
+> records"
+
+When this lands, `search_registry_records` results will carry
+freshness/popularity signals. Search ranking can use them; deprecation
+decisions can use them ("this record has zero invocations in 90
+days"); curators can stop relying on out-of-band dashboards.
+
+Implication: the "Telemetry feedback loop" item further down is no
+longer something we'd build — wait for AWS to ship it natively.
+Custom OTEL plumbing for the same purpose becomes redundant work.
 
 ## Items explicitly NOT in scope
 

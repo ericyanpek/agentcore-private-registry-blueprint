@@ -158,6 +158,8 @@ Claude Code 用一个私有 skill 时，**三件相互独立的事在发生**—
 
 Registry 永远不会**主动推送** skill 到你机器；Registry 也**不知道**你本地装过哪些 skill。这两件事归 agent runtime 与消费脚本管。
 
+> **同样的解耦也适用于服务端**：Registry 不感知 record 描述的资源**跑在哪里**。一个 `MCP` record 的 server 可以在 AgentCore Runtime / Lambda / ECS / 自家 K8s / GovCloud / 别人家 GCP，Registry 只索引 metadata、做治理。这是 AWS 在公告里反复强调的"works with any MCP Server, Agent, Skill or Custom Resource, deployed on AWS, On-Prem or on any other Cloud environment"——把 Registry 当成跨环境的目录，而不是 AWS 内部的运行时附属物。
+
 ### 两层"发现"机制并行运转
 
 ```

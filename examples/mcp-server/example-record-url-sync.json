@@ -1,0 +1,12 @@
+{
+  "name": "example-mcp-url-sync",
+  "description": "MCP server registered via URL-based discovery — Registry pulls server.json + tools/list itself.",
+  "descriptorType": "MCP",
+  "recordVersion": "1.0.0",
+  "synchronizationType": "URL",
+  "synchronizationConfiguration": {
+    "fromUrl": {
+      "url": "https://mcp.example.internal/v1/.well-known/mcp/server-card.json"
+    }
+  }
+}
