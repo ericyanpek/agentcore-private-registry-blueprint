@@ -2,6 +2,12 @@
 
 Usage:
     python3 01_create_registry.py
+
+Targets the PREVIEW namespace (`bedrock-agentcore`). Agent Registry went GA
+2026-08-06 under `agent-registry` with a breaking schema change; the preview
+namespace shuts down 2026-09-17. Accounts holding no preview registries as
+of 2026-08-06 cannot reach the preview namespace at all, so this fails
+outright on a fresh account. Mapping: docs/11-ga-migration.md
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ def main() -> None:
         # authorizerConfiguration.customJWTAuthorizer.
         # Manual approval — admin must explicitly approve every record
         # before it becomes discoverable.
+        # GA equivalent: approvalConfiguration={"autoApprovalRules": []}
         approvalConfiguration={"autoApproval": False},
     )
 

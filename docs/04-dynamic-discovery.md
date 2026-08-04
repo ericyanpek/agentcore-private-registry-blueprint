@@ -8,6 +8,17 @@ For the **interactive IDE case** — a developer in Claude Code asking
 registry exposes a standards-compliant **MCP endpoint** the IDE can
 configure as just another MCP server.
 
+> ⚠️ **GA renames the tool and moves the host.** This page documents the
+> preview shape. At GA (2026-08-06): the MCP search tool
+> `search_registry_records` becomes
+> **`search_discoverable_registry_records`**; the endpoint host moves from
+> `bedrock-agentcore.{region}.amazonaws.com` to
+> `agent-registry.{region}.api.aws` (note **`.api.aws`**, not
+> `.amazonaws.com`); and the SigV4 signing service name used below changes
+> from `bedrock-agentcore` to `agent-registry`. Any MCP client config
+> copied from this page needs all three updated — see
+> [docs/11](./11-ga-migration.md).
+
 ## The endpoint
 
 ```

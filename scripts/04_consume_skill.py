@@ -12,6 +12,11 @@ A developer (or an AI agent) wants to find and install a skill.
      under ~/.claude/skills/
 
 This script demonstrates the entire path end-to-end from a fresh venv.
+
+Targets the PREVIEW namespace (`bedrock-agentcore`). At GA (2026-08-06)
+SearchRegistryRecords is renamed SearchDiscoverableRegistryRecords, the MCP
+tool becomes search_discoverable_registry_records, and `descriptorType`
+gives way to a `recordType` filter. See docs/11-ga-migration.md.
 """
 
 from __future__ import annotations
@@ -46,6 +51,9 @@ def search_registry(query: str) -> dict:
         sys.exit("no READY registries found")
 
     data = boto3.client("bedrock-agentcore", region_name=REGION)
+    # registryIds is list-shaped but accepts exactly one identifier, so this
+    # holds only while the demo account has a single READY registry. Two would
+    # raise ValidationException; searching several needs a client-side loop.
     resp = data.search_registry_records(
         registryIds=arns,
         searchQuery=query,
@@ -61,7 +69,12 @@ def search_registry(query: str) -> dict:
             f"({h.get('descriptorType')}, status={h.get('status')}, "
             f"v={h.get('recordVersion')})"
         )
-    # Take the first AGENT_SKILLS hit
+    # Take the first AGENT_SKILLS hit.
+    # This filters after the fact, so non-skill records still consume slots
+    # against maxResults above. Both preview and GA support pushing the
+    # predicate into the API; GA also renames the field:
+    #   preview: filters={"descriptorType": {"$eq": "AGENT_SKILLS"}}
+    #   GA:      filters={"recordType": {"$eq": "SKILL"}}
     for h in hits:
         if h.get("descriptorType") == "AGENT_SKILLS":
             return h

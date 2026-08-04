@@ -371,10 +371,19 @@ Day-N extensions:
 >
 > ⚠️ **Outranking everything above**: AWS Agent Registry reaches **GA on
 > 2026-08-06**, moving from the `bedrock-agentcore` namespace to
-> `agent-registry` with a restructured API schema. The old namespace loses
-> read and write access on **2026-09-17**. Every script and IAM policy here
-> still targets the preview namespace — see
-> [the GA migration section in docs/06](docs/06-future-optimizations.md#ga-migration--the-blocking-item).
+> `agent-registry` with a **backward-incompatible** schema change —
+> `descriptorType` is removed, `AGENT_SKILLS` becomes
+> `recordType: SKILL`, and `descriptors` is flattened. The old namespace
+> loses read and write access on **2026-09-17**. Every script and IAM policy
+> here still targets the preview namespace, deliberately: the GA boto3
+> clients do not exist yet (verified against boto3 1.42.97), so flipping now
+> would replace a working demo with `UnknownServiceError`. Per-file mapping
+> and the flip sequence: **[docs/11 — GA migration](docs/11-ga-migration.md)**.
+>
+> 🚨 **If your account is new as of 2026-08-06**: with no pre-existing
+> preview registries you cannot access the `bedrock-agentcore` namespace at
+> all, and these scripts will fail outright with no graceful degradation.
+> Read docs/11 first.
 
 [→ Roadmap, including a "what AWS has since shipped" scoreboard: `docs/06-future-optimizations.md`](docs/06-future-optimizations.md)
 

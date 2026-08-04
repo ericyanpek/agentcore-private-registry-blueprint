@@ -6,6 +6,18 @@
 > permission sets) that map to the four real personas in skill
 > governance.
 
+> ⚠️ **Every policy here uses the preview `bedrock-agentcore:*` prefix.**
+> At GA (2026-08-06) the prefix becomes `agent-registry:*` and ARNs move to
+> `arn:aws:agent-registry:…`. The Reader policy additionally needs new action
+> *names*, not just a new prefix: `SearchRegistryRecords` becomes
+> `SearchDiscoverableRegistryRecords`, joined by
+> `ListDiscoverableRegistryRecords` and `GetDiscoverableRegistryRecord`.
+> `BatchGetDiscoverableRegistryRecord` has no action of its own — it
+> authorizes against `GetDiscoverableRegistryRecord`. And
+> `BedrockAgentCoreFullAccess` will **not** gain `agent-registry:*`; switch
+> to the new `AgentRegistryFullAccess` managed policy. Full mapping:
+> [docs/11](./11-ga-migration.md).
+
 The lever you pull to control "who publishes" is **IAM**, not
 something inside the Registry. The Registry trusts whoever
 `bedrock-agentcore:CreateRegistryRecord` says it trusts. Get IAM

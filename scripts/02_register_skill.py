@@ -12,6 +12,11 @@ Flow:
 
 Usage:
     python3 02_register_skill.py
+
+Targets the PREVIEW namespace (`bedrock-agentcore`). The GA record schema
+(2026-08-06) drops `descriptorType` in favour of `recordType="SKILL"` and
+flattens `descriptors`; see the worked before/after in
+docs/11-ga-migration.md.
 """
 
 from __future__ import annotations
@@ -150,6 +155,11 @@ def main() -> None:
                 "FinOps SOP for triaging AWS cost anomalies — text-only "
                 "skill distributed via CodeArtifact PyPI."
             ),
+            # GA: descriptorType is removed; pass recordType="SKILL" and
+            # flatten to descriptors={"agentSkillsDefinition": {
+            #   "data": skill_def, "dataSchemaVersion": "0.1.0",
+            #   "additionalData": {"skillMd": {"data": skill_md}}}}
+            # Note skillMd demotes from sibling to child. docs/11.
             descriptorType="AGENT_SKILLS",
             descriptors={
                 "agentSkills": {

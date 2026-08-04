@@ -59,11 +59,23 @@ namespace at all. A reader cloning this repo after that date will have
 `boto3.client("bedrock-agentcore-control")` fail outright — the demo does
 not degrade gracefully, it simply doesn't run.
 
-Work required: client construction in `scripts/*.py` plus every
-`create_registry` / `create_registry_record` /
-`update_registry_record_status` call re-verified against the new schema;
-IAM policies in `cdk/lib/*.ts` re-prefixed; the four-tier policy JSON in
-`docs/09` and the read-only audit policy in `docs/05` re-prefixed.
+The schema change is genuinely breaking, not cosmetic: `descriptorType` is
+**removed**, the skill type is renamed (`AGENT_SKILLS` → `recordType:
+SKILL`), `descriptors` is flattened with `inlineContent` → `data`, and
+`SearchRegistryRecords` becomes `SearchDiscoverableRegistryRecords` (with
+the MCP tool renamed to match).
+
+**[docs/11 — GA migration](./11-ga-migration.md)** carries the full
+mapping: every changed surface, worked before/after for this repo's actual
+calls, a per-file work list, and the two IAM traps (workload-identity
+actions intentionally keep the old namespace; `BedrockAgentCoreFullAccess`
+is not being updated).
+
+Why the code here is still on preview: the GA service clients don't exist
+in the SDK yet — `agent-registry` / `agent-registry-control` are both
+absent from boto3 1.42.97 as of 2026-08-04. Flipping today trades a working
+demo for `UnknownServiceError`. The clients, endpoints, and schemas move
+together as one atomic change once the SDK ships.
 
 ## Near-term (next 1-3 sprints)
 

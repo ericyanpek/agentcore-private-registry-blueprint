@@ -209,7 +209,8 @@ Registry 永远不会**主动推送** skill 到你机器；Registry 也**不知�
 │   ├── 07-extending-to-other-resources.md  # MCP、KB、Lambda、Guardrail 等
 │   ├── 08-publishing-workflow.md           # 作者视角发布工作流
 │   ├── 09-publishing-iam.md                # 平台团队视角四档 IAM 策略
-│   └── 10-end-user-access.md               # 终端用户走 Cognito 不要 IAM 凭据
+│   ├── 10-end-user-access.md               # 终端用户走 Cognito 不要 IAM 凭据
+│   └── 11-ga-migration.md                  # ⚠️ GA namespace + schema 迁移映射
 ├── cdk/                               # 一键 TypeScript CDK
 │   ├── bin/blueprint.ts
 │   ├── lib/codeartifact-stack.ts
@@ -273,7 +274,9 @@ Registry 永远不会**主动推送** skill 到你机器；Registry 也**不知�
 
 > **表格读法**：✅ 一行不代表本仓库做完了，而代表**这件事不再需要本仓库做** —— AWS 已原生提供，蓝图只需接上。这是好结果：蓝图的定位就是托管服务之上的薄薄一层。
 >
-> ⚠️ **优先级高于本表所有条目**：AWS Agent Registry **2026-08-06 GA**，namespace 从 `bedrock-agentcore` 迁到 `agent-registry`，API schema 重构，旧 namespace **2026-09-17 停止读写**。本仓库全部脚本与 IAM 策略仍指向 preview namespace。详见 [docs/06 的 GA 迁移章节](docs/06-future-optimizations.md#ga-migration--the-blocking-item)。
+> ⚠️ **优先级高于本表所有条目**：AWS Agent Registry **2026-08-06 GA**，namespace 从 `bedrock-agentcore` 迁到 `agent-registry`，API schema **破坏性重构**（`descriptorType` 被删除、`AGENT_SKILLS` → `recordType: SKILL`、descriptors 拉平），旧 namespace **2026-09-17 停止读写**。本仓库全部脚本与 IAM 策略仍指向 preview namespace——因为 GA 的 boto3 client 目前还不存在（已用 boto3 1.42.97 核实），现在翻转会把能跑的 demo 改成跑不了。逐文件映射与翻转时机见 **[docs/11 — GA 迁移](docs/11-ga-migration.md)**。
+>
+> 🚨 **2026-08-06 之后新建账号的读者请注意**：账号里若没有 preview 时期的 registry，将**完全无法访问** `bedrock-agentcore` namespace——本仓库脚本会直接失败，没有优雅降级。先读 docs/11。
 
 [→ 路线图与「AWS 已追平」对照表：`docs/06`](docs/06-future-optimizations.md)
 
