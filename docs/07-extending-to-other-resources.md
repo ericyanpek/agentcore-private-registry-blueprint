@@ -253,6 +253,27 @@ Copy + adapt these when extending the blueprint to your environment.
 }
 ```
 
+Two caveats on that example, since it is the one most likely to be
+copy-pasted:
+
+**`documentCount` and `lastIngested` will go stale immediately.** CUSTOM
+records have no synchronization, so nothing refreshes them. Shown here to
+illustrate a full `spec`, but for a real record either drop them or wire the
+scheduled refresh described below. A stale number inside an *approved*
+record is worse than an absent one — approval implies review.
+
+**For AWS-managed Knowledge Bases, drop `embeddingModel` and
+`vectorStore`.** Those are implementation details the service owns; hand-
+copying them into a record creates a second source of truth that can
+silently disagree with reality. Keep `spec` to facts you actually own —
+data sources, refresh cadence, language, scope — and let `target.arn` be
+the handle for anything live.
+
+The `useFor` / `doNotUseFor` pair is the highest-value part of this record,
+above everything in `spec`. A KB is *retrieved from*, not invoked, so the
+only governance question that matters is which questions belong here — and
+`_meta` plus `description` are the sole places to answer it.
+
 ### Lambda function as agent tool
 
 ```json
@@ -471,33 +492,185 @@ queue by `kind` to route reviews to the right team.
 
 ## Discovery patterns by `kind`
 
-Search filters compose neatly:
+Search filters compose neatly. Note the parameter is **`filters`**, plural
+— verified against the SDK's own service model, where
+`SearchRegistryRecords` takes `searchQuery`, `registryIds`, `maxResults`,
+`filters`. Passing `filter=` raises `ParamValidationError`:
 
 ```python
 # All knowledge bases the agent might use
 data.search_registry_records(
     registryIds=arns,
     searchQuery="product knowledge",
-    filter={"descriptorType": {"$eq": "CUSTOM"}},
+    filters={"descriptorType": {"$eq": "CUSTOM"}},
 )
 
 # Only AGENT_SKILLS
 data.search_registry_records(
     registryIds=arns, searchQuery="...",
-    filter={"descriptorType": {"$eq": "AGENT_SKILLS"}},
+    filters={"descriptorType": {"$eq": "AGENT_SKILLS"}},
 )
 
 # Skills OR MCP — exclude CUSTOM noise
 data.search_registry_records(
     registryIds=arns, searchQuery="...",
-    filter={"descriptorType": {"$in": ["AGENT_SKILLS", "MCP"]}},
+    filters={"descriptorType": {"$in": ["AGENT_SKILLS", "MCP"]}},
 )
 ```
 
-The `filter` only operates on top-level fields (`name`,
-`descriptorType`, `version`). To filter by `kind` (your custom
-field), add it as a search-time keyword in the query and rely on
-hybrid scoring.
+`filters` only operates on top-level fields (`name`, `descriptorType`,
+`version`) with the operators `$eq` / `$ne` / `$in`, plus `$and` / `$or` to
+combine them. To filter by `kind` (your custom field), add it as a
+search-time keyword in the query and rely on hybrid scoring.
+
+> **GA rename**: `descriptorType` becomes `recordType` and the values
+> change (`AGENT_SKILLS` → `SKILL`), so these become
+> `filters={"recordType": {"$eq": "CUSTOM"}}`. `version` becomes
+> `recordVersion`. See [docs/11](./11-ga-migration.md).
+
+## Many KBs — registering and discovering across projects and domains
+
+The single-KB case is easy and the record is mostly documentation. It gets
+interesting at **multiple projects or knowledge domains**, which is the
+common shape well before "multiple agents" is. Three constraints drive the
+whole design, and the first one is a decision you cannot walk back easily.
+
+### Do not shard registries by knowledge domain
+
+The tempting move is one registry per project or domain. Resist it.
+
+`SearchRegistryRecords` accepts **exactly one** registry identifier (the
+parameter is list-shaped, but the API reference states you may specify only
+one; `SearchDiscoverableRegistryRecords` keeps this at GA). Cross-registry
+federated search is **not shipped** — see the federation discussion in
+[docs/06](./06-future-optimizations.md).
+
+So sharding by domain permanently forfeits unified retrieval — and
+"which KB should answer this question?" is the *only* question that really
+matters once you have many KBs. You would be optimizing the filing cabinet
+at the cost of the thing you actually need.
+
+**One registry; encode the domain inside the record.** Legitimate reasons
+to split a registry are prod/dev isolation and hard compliance boundaries.
+Knowledge domains are not among them.
+
+### Routing rides on `description`, not on your custom fields
+
+Server-side filterable fields are only `name`, `descriptorType` /
+`recordType`, and `version` / `recordVersion`. Your `kind: knowledge-base`
+is **not** filterable, and there is **no prefix or wildcard operator** —
+`$eq` / `$ne` / `$in` only. So `kb-finops-*` is not expressible; you would
+have to enumerate names with `$in`.
+
+The consequence is blunt: **multi-KB routing is semantic search, and the
+`description` field is the routing surface.** Not `spec.embeddingModel`,
+not `kind` — the natural-language description. The registry runs semantic
+and lexical search in parallel and merges results, and that text is what an
+agent uses to decide where to look.
+
+That inverts where the effort goes when you have many KBs:
+
+| Field | Role once there are many KBs |
+|---|---|
+| `description` | **Highest leverage.** State what it covers, what it does *not*, and which questions belong here |
+| `name` | Dedup key and the only precise filter handle — worth a naming convention, e.g. `kb-<domain>-<topic>` |
+| `_meta.…invocation.useFor` / `doNotUseFor` | Disambiguation between neighbouring domains |
+| `spec` | Governance, not routing. Keep volatile numbers out (see below) |
+
+`doNotUseFor` shifts from nice-to-have to necessary here: a finance KB and
+a legal KB **will** overlap in vector space, and negative scope is often
+the only thing that separates them. Write it as the boundary between
+specific sibling KBs, not as generic caution.
+
+A worked pair, where the descriptions are doing the routing:
+
+```jsonc
+// kb-finops-cost-allocation
+"description": "Cost allocation methodology, showback/chargeback rules, and
+  tag policy for AWS spend. Answers 'who pays for this account' and 'how is
+  shared infra split'. Does NOT cover vendor contract terms or procurement
+  approval thresholds — see kb-legal-vendor-contracts.",
+
+// kb-legal-vendor-contracts
+"description": "Executed vendor agreements, renewal dates, liability caps,
+  and procurement approval thresholds. Answers 'what did we sign' and 'who
+  can approve this spend'. Does NOT cover internal cost attribution — see
+  kb-finops-cost-allocation."
+```
+
+Both mention cost and spend, so lexical overlap is unavoidable. The
+explicit hand-offs are what make the pair routable.
+
+### Enumerating vs. routing are different APIs
+
+Two distinct questions arise with many KBs, and they should not be served
+by the same call:
+
+| Question | API | Why |
+|---|---|---|
+| "Which KB can answer *this*?" | `SearchRegistryRecords` → GA: `SearchDiscoverableRegistryRecords` | Relevance-ranked; `maxResults` caps at **20** |
+| "What KBs do we have?" | GA: `ListDiscoverableRegistryRecords` | Paginated browse of approved records, `maxResults` up to **100**, filterable by `recordType` |
+
+The 20-result search ceiling is verified against the SDK service model, and
+it bites sooner than you would expect in a mixed registry: skills, MCP
+servers, and KBs all compete for the same 20 slots unless you filter by
+type. This is the concrete reason to push the type predicate server-side
+rather than filtering in Python after the fact — the same bug called out for
+`04_consume_skill.py` in [docs/06](./06-future-optimizations.md).
+
+At GA, `BatchGetDiscoverableRegistryRecord` also lets you pull full details
+for 1–100 records in one call — the natural follow-up to a List when you
+want an agent to choose among candidate KBs with their full descriptors in
+hand.
+
+### Keep volatile numbers out of `spec`
+
+CUSTOM records get **no URL synchronization**. GA is explicit: auto-sync
+fires only for the `mcpServer` and `a2aAgentCard` descriptors, and *"CUSTOM
+records must be created manually by providing `data` directly."* The
+`custom` descriptor carries no `source` field at all — this is structural,
+not a not-yet-implemented gap.
+
+So every volatile field you write **will** drift, with nothing to correct
+it. In `examples/knowledge-base/example-record.json` that means
+`documentCount: 4218` and `lastIngested` are stale the day after they are
+written, and a stale number in an approved record is worse than no number,
+because readers trust it.
+
+Multiply that by many KBs and hand-maintenance stops being realistic. Two
+honest options:
+
+1. **Omit volatile fields.** Keep `spec` to facts you own and that rarely
+   change: data sources, refresh cadence, language coverage, scope
+   boundaries. Let `target.arn` be the handle for anyone who needs live
+   numbers.
+2. **Refresh them from a scheduled job** — EventBridge → Lambda that reads
+   the real resource and calls `UpdateRegistryRecord`. This is the
+   skill-shaped analogue of synchronization applied to CUSTOM, and note
+   each update creates a new revision, so a chatty refresh job inflates
+   revision history.
+
+Start with option 1. Take on option 2 only when someone actually depends on
+a number being current — the cost is a job you now have to operate, per
+domain, forever. See
+[docs/12](./12-record-artifact-integrity.md) for why this is the same
+discovered-vs-actual problem in a different costume: CUSTOM's version of
+the gap is wider than the skill one, since skills at least have an immutable
+artifact to hash.
+
+### Discovery is not authorization
+
+A record containing a KB ARN does not grant anyone the ability to query it
+— `bedrock:Retrieve` is separate IAM. That separation is a feature: the
+catalog can legitimately be broader than any one consumer's access.
+
+But it raises a question worth deciding deliberately with many domains:
+**is the KB ARN itself, plus its description, sensitive?** Anyone who can
+search the registry sees every approved KB's ARN, owning team, and scope
+description. For a finance or legal KB, "this KB exists and covers
+litigation exposure" may itself be information you would not broadcast
+company-wide. If so, that — not knowledge domain — is a real reason to
+split registries, since authorization is per-registry.
 
 ## Migration story — what to do today vs. later
 

@@ -2,6 +2,12 @@
 
 Usage:
     python3 register.py
+
+Targets the PREVIEW namespace. At GA (2026-08-06) this becomes
+recordType="CUSTOM" and descriptors={"custom": {"data": ...}} — see
+docs/11-ga-migration.md. CUSTOM records get no URL synchronization, so
+anything volatile in `spec` (documentCount, lastIngested) drifts with
+nothing to correct it; see the multi-KB section in docs/07.
 """
 
 from __future__ import annotations
