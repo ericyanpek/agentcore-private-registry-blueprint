@@ -40,27 +40,68 @@ Auth0, IAM Identity Center, etc. This is appropriate when:
 - Your org's IdP is not Cognito and SAML-federating it through
   Cognito is unwanted overhead
 
+> **Status correction (2026-08-04).** Earlier revisions of this doc and the
+> README status table listed the direct-JWT path as "🔶 Phase 2 — non-Cognito
+> IdPs still pending." That was ambiguous in a way that undersold the
+> service: it read as if AWS hadn't shipped the capability. AWS had, and
+> now documents it plainly — the registry integrates with Cognito, Okta,
+> Microsoft Entra ID, or **any OAuth 2.0-compatible provider**, so
+> developers and agents can search the registry and invoke the MCP
+> endpoint with existing corporate credentials **without individual IAM
+> access**.
+>
+> What is pending is only *our* CDK construct. The gap is blueprint
+> ergonomics, not a missing AWS feature. Anyone who needs the direct-JWT
+> path today can have it with one `update-registry` call — they just don't
+> get it from `cdk deploy` in this repo.
+
+One boundary worth keeping straight when choosing between the two paths:
+the JWT authorizer setting governs **search / MCP data-plane access
+only**. Control-plane operations — creating and updating registries and
+records, mutating record status — **always use IAM**, regardless of the
+registry's search authorization setting. So direct JWT covers Readers
+cleanly, while Publishers, Curators, and Admins from `docs/09` still need
+IAM identities. Direct JWT replaces the Cognito→Identity Pool bridge for
+search-only consumers; it does not eliminate IAM from the publishing side.
+
+The other reason a search-only reader may still want the indirect path:
+direct JWT gets them into the Registry, but **not into CodeArtifact**.
+Pulling the wheel is a `codeartifact:*` call needing SigV4. Direct JWT
+therefore fits the "embed `SKILL.md` into context from search results"
+consumption mode, while persistent `pip install` still wants the temporary
+IAM credentials from `docs/10`.
+
 ```bash
-# Sketch — productionize before using
+# Sketch — productionize before using.
+# Note the optionalValue wrapper, and that there is no --authorizer-type flag.
 aws bedrock-agentcore-control update-registry \
   --registry-id <id> \
-  --authorizer-type CUSTOM_JWT \
   --authorizer-configuration '{
-    "customJWTAuthorizer": {
-      "discoveryUrl": "https://your-idp/.well-known/openid-configuration",
-      "allowedClients": ["<client-id>"],
-      "allowedScopes": ["registry/search"],
-      "allowedAudience": ["<audience>"]
+    "optionalValue": {
+      "customJWTAuthorizer": {
+        "discoveryUrl": "https://your-idp/.well-known/openid-configuration",
+        "allowedClients": ["<client-id>"],
+        "allowedScopes": ["registry/search"],
+        "allowedAudience": ["<audience>"]
+      }
     }
   }'
 ```
 
-This is **not currently in the CDK** — the registry-stack.ts uses the
+Also note: the AWS console's registry search works for **IAM-authorized
+registries only**. Flip a registry to JWT authorization and curators lose
+console search — they need an HTTP client with a bearer token or an MCP
+client instead. Worth knowing before switching a registry your curators
+use daily.
+
+This is **not currently in the CDK** — `registry-stack.ts` uses the
 default IAM auth.
 
-**Phase 2 TODO**: a CDK construct `RegistryWithJwtAuth` that takes
-discovery URL + allowed clients + scopes and wires it into the
-`bedrock-agentcore-control:update-registry` call.
+**TODO (blueprint-side, not AWS-side)**: a CDK construct
+`RegistryWithJwtAuth` taking discovery URL + allowed clients + scopes and
+wiring them into the `update-registry` call. Since no CloudFormation
+resource covers the authorizer configuration, expect this to be a custom
+resource wrapping the SDK call.
 
 ### CodeArtifact KMS customer-managed key (CMK)
 
@@ -131,7 +172,21 @@ MFA condition):
 - Audit via CloudTrail Lake — query
   `eventName = 'UpdateRegistryRecordStatus' AND status = 'APPROVED'`
 
-**Phase 2 TODO**: CDK + Lambda + Slack message template.
+> **Status update (2026-08-04): the event source shipped.** The Registry
+> now publishes to the **default EventBridge bus** in your account and
+> Region when a record is submitted for approval, routable to Lambda, SNS,
+> SQS, or Step Functions. AWS positions this as the seam for plugging the
+> registry into an organization's existing review process rather than
+> adopting a new one.
+>
+> So the remaining work is a *consumer*, not a pipeline. And if your org
+> already runs security review / compliance checks / a ticketing flow,
+> the recommendation inverts: point the EventBridge rule at what you have
+> and let it call `UpdateRegistryRecordStatus`. The Slack bot below is the
+> demo-friendly option, not the default one.
+
+**TODO (blueprint-side)**: CDK rule + Lambda + Slack message template, as
+a reference consumer of the managed event.
 
 ### Skill content scanning before approval
 

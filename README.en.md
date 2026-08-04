@@ -88,7 +88,7 @@ The Day-1 scope (verified end-to-end):
 | **Skill format** | (the SKILL.md spec) | One real example: `aws-cost-anomaly-triage` with frontmatter + 6 resource files |
 | **Activation** | (consumer-side) | `postinstall.py` console script + `04_consume_skill.py` showing search → install → activate end-to-end |
 | **One-click deploy** | AWS CDK (TypeScript) | `cdk deploy` provisions everything in ~3 minutes |
-| **Auth** | IAM today, JWT/OIDC documented | Working IAM auth in scripts; OAuth/JWT path documented as Phase 2 |
+| **Auth** | IAM today, JWT/OIDC shipped by AWS | Working IAM auth in scripts; direct-JWT is a GA service capability (any OAuth 2.0 IdP) awaiting a CDK construct here — docs/05, docs/10 |
 
 The Day-N scope (documented, ready to extend):
 
@@ -353,14 +353,30 @@ Day-N extensions:
 | Knowledge Base records (CUSTOM) | 📘 Documented in `07-extending` + `examples/knowledge-base/` placeholder |
 | Lambda tool records (CUSTOM) | 📘 Documented in `07-extending` + `examples/lambda-tool/` placeholder |
 | Bedrock Guardrails records (CUSTOM) | 📘 Documented in `07-extending` + `examples/guardrail/` placeholder |
-| Registry MCP endpoint **direct** JWT (CustomJWTAuthorizer with Okta/any OIDC) | 🔶 Phase 2 — Cognito covered via the indirect path; non-Cognito IdPs attaching directly to Registry still pending — see `docs/05-auth-placeholder.md` |
+| Registry MCP endpoint **direct** JWT (CustomJWTAuthorizer with Okta/any OIDC) | ✅ **Shipped by AWS** — Cognito, Okta, Entra ID, or any OAuth 2.0 provider; corporate credentials with no individual IAM. Only our CDK construct is missing — see `docs/05-auth-placeholder.md` |
+| EventBridge approval pipeline | ✅ **Shipped by AWS** — native event to the default bus on submit-for-approval. A reference consumer is what this repo still owes — see `docs/05-auth-placeholder.md` |
 | Cross-account consumption | 🔶 Phase 2 |
 | KMS CMK on CodeArtifact | 🔶 Phase 2 |
-| EventBridge → Slack approval pipeline | 🔶 Phase 2 |
+| Cross-registry federated search | ❌ Not shipped by AWS — `registryIds` is list-shaped but accepts exactly one. Multi-account fan-out stays transitional |
+| Record-level observability data | ❌ Not shipped by AWS — the standing advice to not build a custom OTEL aggregator holds |
+| Metadata search filters | ✅ **Shipped by AWS** — `$eq`/`$in`/`$and` over `descriptorType` etc. `04_consume_skill.py` should push its client-side filter down — see `docs/06` |
 | OCI artifact distribution | ⏸ Future — pending agentskills/agentskills spec |
 | GitHub Actions CI for publish-on-merge | ⏸ Future |
 
-[→ Roadmap: `docs/06-future-optimizations.md`](docs/06-future-optimizations.md)
+> **How to read this table**: a ✅ does not mean this repo finished the
+> work — it means the work is no longer this repo's to do, because AWS
+> ships it natively and the blueprint only has to connect to it. That's the
+> intended outcome; this blueprint aims to be a thin layer over the managed
+> service.
+>
+> ⚠️ **Outranking everything above**: AWS Agent Registry reaches **GA on
+> 2026-08-06**, moving from the `bedrock-agentcore` namespace to
+> `agent-registry` with a restructured API schema. The old namespace loses
+> read and write access on **2026-09-17**. Every script and IAM policy here
+> still targets the preview namespace — see
+> [the GA migration section in docs/06](docs/06-future-optimizations.md#ga-migration--the-blocking-item).
+
+[→ Roadmap, including a "what AWS has since shipped" scoreboard: `docs/06-future-optimizations.md`](docs/06-future-optimizations.md)
 
 ## Why now (the SA take)
 

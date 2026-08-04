@@ -51,7 +51,7 @@ Day-1 演示聚焦 **Skills**，因为隐私论点在这里最锋利。Skill 不
 | Skill 格式 | (SKILL.md 规范) | 示例 `aws-cost-anomaly-triage`：frontmatter + 6 个资源文件 |
 | 激活 | (消费侧) | `postinstall.py` 控制台脚本 + `04_consume_skill.py` 跑通 search → install → activate |
 | 一键部署 | AWS CDK (TypeScript) | `cdk deploy --all` 约 3 分钟 |
-| 认证 | IAM 当下；JWT/OIDC 已落地 | IAM 路径可跑；Cognito JWT 路径见 docs/10 |
+| 认证 | IAM 当下；JWT/OIDC 服务侧已 GA | IAM 路径可跑；Cognito 间接路径见 docs/10；直连任意 OAuth 2.0 IdP 是 AWS 已发布能力，本仓库尚缺 CDK construct，见 docs/05 |
 
 **Day-N（已文档化，可扩展）**：
 
@@ -261,14 +261,21 @@ Registry 永远不会**主动推送** skill 到你机器；Registry 也**不知�
 | Knowledge Base records (CUSTOM) | 📘 docs/07 + `examples/knowledge-base/` |
 | Lambda 工具 records (CUSTOM) | 📘 docs/07 + `examples/lambda-tool/` |
 | Bedrock Guardrails records (CUSTOM) | 📘 docs/07 + `examples/guardrail/` |
-| Registry MCP endpoint **直接** JWT（CustomJWTAuthorizer 接非 Cognito IdP） | 🔶 Phase 2，docs/05 |
+| Registry MCP endpoint **直接** JWT（CustomJWTAuthorizer 接非 Cognito IdP） | ✅ **AWS 侧已 GA**（Cognito / Okta / Entra ID / 任意 OAuth 2.0）；缺的只是本仓库的 CDK construct，docs/05 |
+| EventBridge 审批流水线 | ✅ **AWS 侧已 GA**（提交审批时原生发事件到 default bus）；本仓库待补一个 consumer 示例，docs/05 |
 | 跨账号消费 | 🔶 Phase 2 |
 | CodeArtifact KMS CMK | 🔶 Phase 2 |
-| EventBridge → Slack 审批流水线 | 🔶 Phase 2 |
+| 跨 registry 联邦搜索 | ❌ AWS 未发布（`registryIds` 是 list 但只允许填 1 个）；多账号 fan-out 仍是过渡形态 |
+| 记录级可观测性数据 | ❌ AWS 未发布；建议继续不要自建 OTEL 聚合 |
+| Metadata 搜索 filters | ✅ **AWS 侧已 GA**（`$eq`/`$in`/`$and` 等，按 `descriptorType` 服务端过滤）；`04_consume_skill.py` 应改为下推，docs/06 |
 | OCI 制品分发 | ⏸ 等 agentskills/agentskills 规范定稿 |
 | GitHub Actions 合并即发布 CI | ⏸ Phase 2 |
 
-[→ 路线图：`docs/06`](docs/06-future-optimizations.md)
+> **表格读法**：✅ 一行不代表本仓库做完了，而代表**这件事不再需要本仓库做** —— AWS 已原生提供，蓝图只需接上。这是好结果：蓝图的定位就是托管服务之上的薄薄一层。
+>
+> ⚠️ **优先级高于本表所有条目**：AWS Agent Registry **2026-08-06 GA**，namespace 从 `bedrock-agentcore` 迁到 `agent-registry`，API schema 重构，旧 namespace **2026-09-17 停止读写**。本仓库全部脚本与 IAM 策略仍指向 preview namespace。详见 [docs/06 的 GA 迁移章节](docs/06-future-optimizations.md#ga-migration--the-blocking-item)。
+
+[→ 路线图与「AWS 已追平」对照表：`docs/06`](docs/06-future-optimizations.md)
 
 ## 为什么是现在（一个 SA 视角）
 
