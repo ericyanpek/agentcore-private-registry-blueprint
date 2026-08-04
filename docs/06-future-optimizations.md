@@ -420,6 +420,15 @@ that the registered `skillMd.inlineContent` still matches the published
 wheel's `SKILL.md` is the skill-shaped analogue of synchronization, and
 this repo doesn't have one.
 
+That check is more load-bearing than it first appears: when a consumer
+embeds `SKILL.md` from search results instead of installing the wheel, the
+**record is the executed artifact**, and this comparison is the only thing
+keeping it honest. Synchronization gives MCP and agent records
+discovered-equals-actual by construction; skills have no endpoint to poll,
+so they need it built. See
+[docs/12 — record ↔ artifact integrity](./12-record-artifact-integrity.md)
+for the four distinct gaps and the mechanism each one needs.
+
 ### Observability data flowing into records
 
 > "operational data from AgentCore Observability — invocation

@@ -158,6 +158,10 @@ Claude Code 用一个私有 skill 时，**三件相互独立的事在发生**—
 
 Registry 永远不会**主动推送** skill 到你机器；Registry 也**不知道**你本地装过哪些 skill。这两件事归 agent runtime 与消费脚本管。
 
+> **这个解耦的代价**：Registry 存的是指针,所以它**本身无法保证「你发现的」就是「你实际跑的」**。record 与制品字节、record 里的 `skillMd` 与 wheel 里的 `SKILL.md`、批准的 revision 与装上的版本、远端 record 与本地 `~/.claude/skills/`——这是四类独立缺口,需要四种不同机制(digest pinning、CI 等值校验、安装时复查审批态、本地 attestation)。本仓库目前只 pin 了版本号、没有 digest。完整分析与工作清单见 **[docs/12 — 发现与实际的一致性](docs/12-record-artifact-integrity.md)**。
+>
+> 注意两条消费路径需要**不同**的机制:持久安装(上面 2b)靠 digest;而**内嵌 SKILL.md 一次性用(2a)时,record 本身就是被执行的东西**——制品根本没被拉取,digest 在这条路上无效,只能靠 `skillMd` 由 CI 从 wheel 派生 + 审批门控。
+
 > **同样的解耦也适用于服务端**：Registry 不感知 record 描述的资源**跑在哪里**。一个 `MCP` record 的 server 可以在 AgentCore Runtime / Lambda / ECS / 自家 K8s / GovCloud / 别人家 GCP，Registry 只索引 metadata、做治理。这是 AWS 在公告里反复强调的"works with any MCP Server, Agent, Skill or Custom Resource, deployed on AWS, On-Prem or on any other Cloud environment"——把 Registry 当成跨环境的目录，而不是 AWS 内部的运行时附属物。
 
 ### 两层"发现"机制并行运转
@@ -210,7 +214,8 @@ Registry 永远不会**主动推送** skill 到你机器；Registry 也**不知�
 │   ├── 08-publishing-workflow.md           # 作者视角发布工作流
 │   ├── 09-publishing-iam.md                # 平台团队视角四档 IAM 策略
 │   ├── 10-end-user-access.md               # 终端用户走 Cognito 不要 IAM 凭据
-│   └── 11-ga-migration.md                  # ⚠️ GA namespace + schema 迁移映射
+│   ├── 11-ga-migration.md                  # ⚠️ GA namespace + schema 迁移映射
+│   └── 12-record-artifact-integrity.md     # 发现的 == 实际跑的？四类缺口与对策
 ├── cdk/                               # 一键 TypeScript CDK
 │   ├── bin/blueprint.ts
 │   ├── lib/codeartifact-stack.ts

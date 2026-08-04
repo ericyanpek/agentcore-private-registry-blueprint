@@ -231,6 +231,22 @@ never knows whether you have a skill installed locally. Those two
 concerns belong to the agent runtime (Claude Code) and to your
 consumer scripts.
 
+> **What that decoupling costs you**: because the Registry stores pointers,
+> it **cannot by itself guarantee that what you discovered is what you
+> ran**. That splits into four independent gaps — record vs. artifact bytes,
+> the record's `skillMd` vs. the wheel's `SKILL.md`, approved revision vs.
+> installed version, and remote record vs. local `~/.claude/skills/` — each
+> needing a different mechanism (digest pinning, a CI equality check, an
+> install-time approval re-check, a local attestation manifest). This repo
+> currently pins versions but carries no digest. Full analysis and work
+> list: **[docs/12 — record ↔ artifact integrity](docs/12-record-artifact-integrity.md)**.
+>
+> Note that the two consumption paths above need **different** mechanisms.
+> Persistent install (2b) is what digests protect. But when Claude embeds
+> `SKILL.md` for one-off use (2a), **the record itself is the executed
+> artifact** — no wheel is fetched, so a digest protects nothing; only a
+> CI-derived, approval-gated `skillMd` does.
+
 > **The same decoupling extends to the server side**: the Registry
 > is unaware of *where* the resource a record describes actually
 > runs. An `MCP` record's server can live in AgentCore Runtime,
