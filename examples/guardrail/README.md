@@ -6,7 +6,7 @@ with a real one before running.
 ## What this does
 
 Registers an existing Bedrock Guardrail as a
-`descriptorType: CUSTOM` record with `kind: guardrail`. Agents and
+`recordType: CUSTOM` record with `kind: guardrail`. Agents and
 developers can search for "PII redaction" or "financial-advice block"
 and find the guardrail, then attach it to their model invocation
 configuration.

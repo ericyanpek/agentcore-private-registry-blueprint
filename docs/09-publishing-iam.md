@@ -1,309 +1,88 @@
-# Publishing IAM — four-tier policy reference
+# IAM: keep publication, approval and consumption separate
 
-> Audience: a platform / security engineer who decides who can
-> publish, approve, and consume skills. This doc gives you the IAM
-> policies to attach to four IAM Groups (or IAM Identity Center
-> permission sets) that map to the four real personas in skill
-> governance.
+Use separate federated IAM roles/profiles. Profile names alone are not a security boundary.
+This page describes the GA namespace; AgentCore Runtime/Gateway/Identity actions retain their
+own `bedrock-agentcore` prefix.
 
-> ⚠️ **Every policy here uses the preview `bedrock-agentcore:*` prefix.**
-> At GA (2026-08-06) the prefix becomes `agent-registry:*` and ARNs move to
-> `arn:aws:agent-registry:…`. The Reader policy additionally needs new action
-> *names*, not just a new prefix: `SearchRegistryRecords` becomes
-> `SearchDiscoverableRegistryRecords`, joined by
-> `ListDiscoverableRegistryRecords` and `GetDiscoverableRegistryRecord`.
-> `BatchGetDiscoverableRegistryRecord` has no action of its own — it
-> authorizes against `GetDiscoverableRegistryRecord`. And
-> `BedrockAgentCoreFullAccess` will **not** gain `agent-registry:*`; switch
-> to the new `AgentRegistryFullAccess` managed policy. Full mapping:
-> [docs/11](./11-ga-migration.md).
+## Consumer
 
-The lever you pull to control "who publishes" is **IAM**, not
-something inside the Registry. The Registry trusts whoever
-`bedrock-agentcore:CreateRegistryRecord` says it trusts. Get IAM
-right and everything else follows.
+[`iam/consumer-policy.json`](../iam/consumer-policy.json) is the SDK consumer baseline, generated
+from `registry_blueprint/consumer.py` using IAM Policy Autopilot and narrowed to explicit resource
+placeholders. Substitute `REGION`, `ACCOUNT_ID`, `REGISTRY_ID`, `DOMAIN`, and `REPOSITORY`
+before attaching it to a role. Use the respective owner account for cross-account resources.
 
-## The four personas
+| Permission | Resource scope |
+|---|---|
+| `agent-registry:SearchDiscoverableRegistryRecords` | One registry ARN |
+| `agent-registry:GetDiscoverableRegistryRecord` | Records under that registry (`/record/*`) |
+| `codeartifact:GetPackageVersionAsset` | PyPI packages in one repository |
 
-| Persona | What they do | What they need IAM-wise |
-|---|---|---|
-| **Reader** (everyone in the org) | Search the registry, install approved skills | search + read on registry; pull on CodeArtifact |
-| **Publisher** | Author and publish new skill versions | Reader + create-record + submit-for-approval + push on CodeArtifact |
-| **Curator** | Approve / reject / deprecate records; respond to incidents | Reader + update-record-status |
-| **Admin** | Create/delete the registry itself, manage IAM | Full bedrock-agentcore + codeartifact admin |
+`BatchGetDiscoverableRegistryRecord` is authorized using `GetDiscoverableRegistryRecord`;
+there is no separate batch IAM action. No `ListRegistries`, `ListRegistryRecords`,
+`GetRegistryRecord`, publish or approval permissions belong in this role.
 
-Most engineers are Readers. Some teams have a few Publishers. Curators
-are typically a small named list — security, FinOps lead, platform
-TPM, etc.
+For browsing/MCP, additionally grant `agent-registry:ListDiscoverableRegistryRecords` and
+`agent-registry:InvokeRegistryMcp` on the same registry ARN. IdentityStack includes these.
+The SDK download path requires no CodeArtifact bearer token, STS token exchange for CodeArtifact,
+or `ReadFromRepository`; those are needed for a separate pip/Twine path, not this consumer.
 
-**A single person is usually in multiple groups** (e.g., a FinOps lead
-is both a Publisher of finops skills and a Curator of finops skills).
-That's fine; the policies are additive.
+The IAM baseline can be regenerated locally (no policy upload):
 
-## Policy 1 — Reader (CI / service accounts only)
-
-> **Important:** This IAM policy is for **CI pipelines, service
-> accounts, and developers who already have IAM Identity Center**.
-> For human end-users (analysts, business users, most developers),
-> the recommended path is **Cognito User Pool + Identity Pool**
-> documented in [docs/10-end-user-access.md](./10-end-user-access.md).
-> That path issues the same set of permissions but via Cognito group
-> → IAM role mapping, with no AWS credentials on user machines.
-
-For service accounts and CI principals only:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "RegistryReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "bedrock-agentcore:ListRegistries",
-        "bedrock-agentcore:GetRegistry",
-        "bedrock-agentcore:ListRegistryRecords",
-        "bedrock-agentcore:GetRegistryRecord",
-        "bedrock-agentcore:SearchRegistryRecords",
-        "bedrock-agentcore:InvokeRegistryMcp"
-      ],
-      "Resource": "arn:aws:bedrock-agentcore:*:*:registry/*"
-    },
-    {
-      "Sid": "CodeArtifactPullOnly",
-      "Effect": "Allow",
-      "Action": [
-        "codeartifact:GetAuthorizationToken",
-        "codeartifact:GetRepositoryEndpoint",
-        "codeartifact:ReadFromRepository",
-        "codeartifact:GetPackageVersionAsset",
-        "codeartifact:GetPackageVersionReadme",
-        "codeartifact:DescribePackage",
-        "codeartifact:DescribePackageVersion",
-        "codeartifact:ListPackageVersionAssets",
-        "codeartifact:ListPackageVersions",
-        "codeartifact:ListRepositories",
-        "codeartifact:ListPackages"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "CodeArtifactBearerToken",
-      "Effect": "Allow",
-      "Action": "sts:GetServiceBearerToken",
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "sts:AWSServiceName": "codeartifact.amazonaws.com"
-        }
-      }
-    }
-  ]
-}
+```bash
+DISABLE_IAM_POLICY_AUTOPILOT_TELEMETRY=true uvx iam-policy-autopilot@latest generate-policies \
+  "$PWD/registry_blueprint/consumer.py" \
+  --region us-east-1 --service-hints agent-registry codeartifact --pretty
 ```
 
-This is the full set needed to run `04_consume_skill.py` (which is
-what consumers do). No write capability anywhere.
+Do not apply wildcard output blindly. Bind account, registry and repository to deployment outputs.
+Also review existing role policies, permission boundaries, SCPs and resource policies.
 
-## Policy 2 — Publisher (scoped to a registry / repo)
+## Publisher
 
-Attach to authors of a specific team. Scope `Resource` to the registry
-ARN they own — that's how you say "FinOps engineers can publish to
-the FinOps registry only".
+The publisher needs the following operations, not approval:
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "RegistryRecordCreateAndSubmit",
-      "Effect": "Allow",
-      "Action": [
-        "bedrock-agentcore:CreateRegistryRecord",
-        "bedrock-agentcore:UpdateRegistryRecord",
-        "bedrock-agentcore:DeleteRegistryRecord",
-        "bedrock-agentcore:SubmitRegistryRecordForApproval"
-      ],
-      "Resource": "arn:aws:bedrock-agentcore:us-east-1:111122223333:registry/<registryId>/*"
-    },
-    {
-      "Sid": "CodeArtifactPublishToOwnRepo",
-      "Effect": "Allow",
-      "Action": [
-        "codeartifact:PublishPackageVersion",
-        "codeartifact:PutPackageMetadata"
-      ],
-      "Resource": "arn:aws:codeartifact:us-east-1:111122223333:package/<domain>/<repo>/pypi/*/*"
-    }
-  ]
-}
-```
+- Registry: `CreateRegistryRecord`, `GetRegistryRecord`, `ListRegistryRecords`,
+  `SubmitRegistryRecordForApproval` under the selected registry.
+- CodeArtifact: `GetAuthorizationToken` on the domain; `GetRepositoryEndpoint` and
+  `ReadFromRepository` on the repository; `PublishPackageVersion` and
+  `ListPackageVersionAssets` on its PyPI package ARNs.
+- STS: `GetServiceBearerToken`, conditioned on `sts:AWSServiceName = codeartifact.amazonaws.com`,
+  for Twine authentication; `GetCallerIdentity` if resolving the artifact domain owner.
+- Optional `agent-registry:ListRegistries` on `*` only if resolving a registry **name**.
+  Pass `--registry-id`/`AGENT_REGISTRY_ARN` to avoid this discovery requirement.
 
-**Two important things this policy does NOT grant:**
+Use the `agent-registry:` prefix for the listed Registry actions.
+Scope record actions to the resource types specified in the service authorization reference,
+including the selected registry and its `/record/*` children as required.
+Do not grant `UpdateRegistryRecordStatus`, metadata mutation of approved releases, or
+`codeartifact:DeletePackageVersions` merely to make publication work.
 
-- `bedrock-agentcore:UpdateRegistryRecordStatus` — Publishers cannot
-  approve their own records. That's the curator's job, by IAM
-  separation of duty.
-- Any cross-team registry — scoping `Resource` to a single registry
-  ARN means a FinOps Publisher cannot publish to the Customer Care
-  registry. Repeat the policy with a different ARN for cross-team
-  publishers.
+Static analyzers may not resolve shared-client wrapper functions or Twine's HTTP requests;
+publisher output from Autopilot alone is not a complete publishing policy.
 
-This is usually attached to an IAM Group like `Skills-Publishers-FinOps`,
-populated via SSO group membership.
+## Curator
 
-## Policy 3 — Curator (separation-of-duty)
+Use `agent-registry:ListRegistryRecords`, `GetRegistryRecord`, and
+`UpdateRegistryRecordStatus` for the selected registry and its records.
+Provide the registry ARN so no `ListRegistries` grant is needed.
+The curator script will not submit drafts or publish wheels.
 
-Attach to the small list of people who can approve / reject /
-deprecate records. Typically scoped to a specific registry.
+Approval is a human/content-review decision. Automated status changes do not establish that
+the SOP or bundled scripts are safe. Give a curator narrowly scoped artifact-read access if
+they need to inspect the wheel as part of that review.
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "RegistryRecordApprovalActions",
-      "Effect": "Allow",
-      "Action": [
-        "bedrock-agentcore:UpdateRegistryRecordStatus",
-        "bedrock-agentcore:GetRegistryRecord",
-        "bedrock-agentcore:ListRegistryRecords"
-      ],
-      "Resource": "arn:aws:bedrock-agentcore:us-east-1:111122223333:registry/<registryId>/*"
-    }
-  ],
-  "Condition": {
-    "Bool": {
-      "aws:MultiFactorAuthPresent": "true"
-    }
-  }
-}
-```
+## Verify the boundary
 
-**Two recommended hardenings on top of the basic grant:**
+Run the positive and negative steps in [the walkthrough](03-demo-walkthrough.md):
 
-1. **MFA condition** — `aws:MultiFactorAuthPresent: true` so an
-   approval action requires the curator to have signed in with MFA.
-   Approving a skill is a privileged action; treat it like a prod
-   deployment.
-2. **CloudTrail alerting** — Wire a CloudTrail event rule that
-   alerts on every `UpdateRegistryRecordStatus` call. You want
-   visibility into who approved what, when, with what reason.
+1. A publisher can submit but cannot approve.
+2. A curator can approve but cannot publish a wheel.
+3. A consumer can fetch the approved record but cannot read drafts through governance APIs.
+4. A team A consumer cannot discover team B's registry or download team B's repository assets.
 
-## Policy 4 — Admin (small, audited, infrequent)
+CodeArtifact itself is not approval-aware. Anyone with download permission can bypass this client
+and request an unapproved artifact directly. Server-enforced approval-gated download requires
+a separate staging/release repository promotion design; it is outside this revision.
 
-For the platform engineer who created the registry and might need
-to delete it. **Should not be attached to any human's daily-driver
-role** — assume-role only.
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "RegistryFullControl",
-      "Effect": "Allow",
-      "Action": "bedrock-agentcore:*Registry*",
-      "Resource": "*"
-    },
-    {
-      "Sid": "CodeArtifactFullControl",
-      "Effect": "Allow",
-      "Action": "codeartifact:*",
-      "Resource": "*"
-    }
-  ]
-}
-```
-
-## Putting it together — IAM Identity Center recipe
-
-If you're using IAM Identity Center (recommended), four permission
-sets:
-
-| Permission set | Inline policy | Default users |
-|---|---|---|
-| `Skills-Reader` | Policy 1 | All engineers (by AD/Okta group sync) |
-| `Skills-Publisher-<team>` | Policy 1 + Policy 2 (scoped to team registry) | Team's authors |
-| `Skills-Curator-<team>` | Policy 1 + Policy 3 (scoped to team registry) | 1-3 named people |
-| `Skills-Admin` | Policy 4 | 1-2 platform engineers, assume-role only |
-
-Provision with CDK / CloudFormation from the central account so
-the layout is auditable.
-
-## Three IAM patterns that come up
-
-### Pattern: Publishers must run from CI, not laptop
-
-Restrict the Publisher group to only allow the action when the
-caller is the GitHub Actions OIDC role:
-
-```json
-{
-  "Sid": "PublisherOnlyFromCi",
-  "Effect": "Deny",
-  "Action": [
-    "bedrock-agentcore:CreateRegistryRecord",
-    "codeartifact:PublishPackageVersion"
-  ],
-  "Resource": "*",
-  "Condition": {
-    "StringNotLike": {
-      "aws:PrincipalArn": "arn:aws:iam::*:role/GitHubActions-Publisher-*"
-    }
-  }
-}
-```
-
-This eliminates "I published from my laptop and the version isn't
-reproducible" failures.
-
-### Pattern: Publishers cannot publish to global namespace
-
-If you have a `global-shared-registry`, scope the team Publisher
-policies to their team registry only — a separate Curator-level
-review is required to "promote" a skill from a team registry to
-global. Implement promotion as a CI job that runs under a
-purpose-built IAM role, not as a Publisher action.
-
-### Pattern: Self-approve audit detection
-
-Even with separation of duty, an admin in both the Publisher and
-Curator groups can self-approve. Detect this with CloudTrail:
-
-```sql
--- CloudTrail Lake query
-SELECT eventTime, userIdentity.arn, recordId
-FROM cloudtrail
-WHERE eventName = 'UpdateRegistryRecordStatus'
-  AND status = 'APPROVED'
-  AND userIdentity.arn IN (
-    SELECT userIdentity.arn FROM cloudtrail
-    WHERE eventName = 'CreateRegistryRecord'
-      AND recordId = <same record>
-      AND eventTime > <recent window>
-  )
-```
-
-Alert on hits. This is a compensating control, not a hard block —
-some teams legitimately have a single trusted person doing both.
-
-## When to ignore this whole doc
-
-If you're a single-team PoC and security oversight isn't a
-near-term concern: just attach Policy 4 to your developer role,
-ship the demo, and revisit when you're ready to onboard the second
-team. **The blueprint's Day-1 demo deliberately uses broad
-`bedrock-agentcore:*` and `codeartifact:*`** because security
-hardening is Phase-2 work. This doc is what Phase 2 looks like
-when it gets here.
-
-## See also
-
-- [docs/05-auth-placeholder.md](./05-auth-placeholder.md) — the
-  per-persona policies (this doc) plus JWT/OIDC inbound auth
-  (Phase 2)
-- [docs/08-publishing-workflow.md](./08-publishing-workflow.md) —
-  what authors do, assuming the IAM groups in this doc are set up
-- [skills/publish-skill/](../skills/publish-skill/) — the meta-skill
-  that publishes other skills
+References: [Registry authorization](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/registry.html),
+[BatchGet API](https://docs.aws.amazon.com/agent-registry/latest/APIReference/API_BatchGetDiscoverableRegistryRecord.html).

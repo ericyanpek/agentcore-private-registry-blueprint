@@ -1,97 +1,40 @@
-"""Submit and approve the demo skill record.
+"""Approve one explicitly selected release as the curator, not as the consumer."""
 
-In a real org, the publisher submits and a different IAM principal
-(admin) approves. For demo we do both with the same identity. The
-status machine is:
+import argparse
+import os
 
-  DRAFT ──submit──> PENDING_APPROVAL ──update_status──> APPROVED
-                                    └──update_status──> REJECTED
-
-Only APPROVED records are visible to consumers via search.
-"""
-
-from __future__ import annotations
-
-import json
-import sys
-import time
-
-import boto3
-from botocore.exceptions import ClientError
-
-REGION = "us-east-1"
-REGISTRY_NAME = "skills-demo-registry"
-RECORD_NAME = "aws-cost-anomaly-triage"
-
-
-def find_ids(client) -> tuple[str, str, str]:
-    registry_id = None
-    for r in client.list_registries().get("registries", []):
-        if r.get("name") == REGISTRY_NAME:
-            registry_id = r["registryArn"].rsplit("/", 1)[-1]
-            break
-    if not registry_id:
-        sys.exit(f"registry {REGISTRY_NAME!r} not found")
-    for rec in client.list_registry_records(registryId=registry_id).get(
-        "registryRecords", []
-    ):
-        if rec.get("name") == RECORD_NAME:
-            return registry_id, rec["recordId"], rec["status"]
-    sys.exit(f"record {RECORD_NAME!r} not found in {registry_id}")
-
-
-def wait_state(client, registry_id, record_id, target, timeout=60):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        rec = client.get_registry_record(
-            registryId=registry_id, recordId=record_id
-        )
-        if rec.get("status") == target:
-            return rec
-        time.sleep(2)
-    sys.exit(f"timeout waiting for {target}")
+from registry_blueprint.registry import client, find_registry, records, wait_record
 
 
 def main() -> None:
-    client = boto3.client("bedrock-agentcore-control", region_name=REGION)
-    registry_id, record_id, status = find_ids(client)
-    print(f"registry={registry_id} record={record_id} status={status}")
-
-    if status == "DRAFT":
-        print("submitting for approval...")
-        client.submit_registry_record_for_approval(
-            registryId=registry_id, recordId=record_id
-        )
-        rec = wait_state(client, registry_id, record_id, "PENDING_APPROVAL")
-        status = rec["status"]
-        print(f"now {status}")
-
-    if status == "PENDING_APPROVAL":
-        print("approving...")
-        try:
-            client.update_registry_record_status(
-                registryId=registry_id,
-                recordId=record_id,
-                status="APPROVED",
-                statusReason="demo: approved by SA after content review",
-            )
-        except ClientError as e:
-            sys.exit(f"approval failed: {e}")
-        rec = wait_state(client, registry_id, record_id, "APPROVED")
-        status = rec["status"]
-        print(f"now {status}")
-
-    if status == "APPROVED":
-        print("\nrecord is APPROVED — visible to consumers via search.")
-        rec = client.get_registry_record(
-            registryId=registry_id, recordId=record_id
-        )
-        print(json.dumps({
-            "name": rec["name"],
-            "recordArn": rec["recordArn"],
-            "status": rec["status"],
-            "version": rec.get("recordVersion"),
-        }, default=str, indent=2))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--registry-id", default=os.getenv("AGENT_REGISTRY_ARN"))
+    parser.add_argument("--registry", default="skills-demo-registry")
+    parser.add_argument("--region", default=os.getenv("AWS_REGION", "us-east-1"))
+    parser.add_argument("--name", default="aws-cost-anomaly-triage")
+    parser.add_argument("--version", default="0.1.0")
+    parser.add_argument("--reason", required=True)
+    args = parser.parse_args()
+    control = client("agent-registry-control", args.region)
+    registry_id = args.registry_id or find_registry(control, args.registry)
+    matches = [
+        record for record in records(control, registry_id)
+        if record["name"] == args.name and record.get("recordVersion") == args.version
+    ]
+    if len(matches) != 1:
+        raise ValueError("Expected exactly one record with the requested name/version")
+    record = control.get_registry_record(registryId=registry_id, recordId=matches[0]["recordId"])
+    if record["status"] == "APPROVED":
+        print(f"Already approved: {record['recordArn']}")
+        return
+    if record["status"] != "PENDING_APPROVAL":
+        raise ValueError("Publisher must submit the release for approval first")
+    control.update_registry_record_status(
+        registryId=registry_id, recordId=record["recordId"],
+        status="APPROVED", statusReason=args.reason,
+    )
+    approved = wait_record(control, registry_id, record["recordId"], "APPROVED")
+    print(f"Approved: {approved['recordArn']}; allow time for discovery indexing")
 
 
 if __name__ == "__main__":

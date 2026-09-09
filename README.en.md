@@ -1,443 +1,71 @@
 # agentcore-private-registry-blueprint
 
-> 🌐 [中文版 README](./README.md) · **English (this page)**
+[中文](README.md)
 
-> A working blueprint for running a **private, governed AI resource
-> registry on AWS** — built on Amazon Bedrock AgentCore Registry +
-> AWS CodeArtifact.
->
-> **Day 1**: ships a verified end-to-end **Skills** demo (one-click
-> CDK + a real skill that installs into Claude Code).
->
-> **Day N**: the same registry — and most of the same patterns —
-> hold MCP servers, A2A agents, knowledge bases, Lambda tools,
-> guardrails, Cedar policies, eval datasets, and any custom resource
-> your org wants to govern. See
-> [docs/07-extending-to-other-resources.md](docs/07-extending-to-other-resources.md).
+Private skill distribution and verified consumption using **AWS Agent Registry GA + CodeArtifact**.
+Registry owns catalog discovery and approval; CodeArtifact stores wheels; this blueprint binds approved
+metadata to the bytes activated on a consumer's machine.
 
-**Status**: Preview-stage reference (2026-05). AWS Agent Registry is in public preview; APIs may change.
+**Status — 2026-09-09:** executable code targets the `agent-registry` namespace. SDK contract checks,
+offline integrity scenarios and CDK validation are complete. **This GA revision has not been deployed
+and verified end to end in a live AWS account.** Earlier Preview verification does not establish GA compatibility.
 
----
+## Flow
 
-## Why this exists
+1. Build one wheel; derive the record's `SKILL.md` and SHA-256 from that wheel.
+2. Upload to CodeArtifact and verify the server-reported asset hash.
+3. Publish a `SKILL` record, submit it, and have a separate curator approve it.
+4. Consumers search an explicit registry for an exact name/version and fetch approved details through the discovery plane.
+5. Download from the explicitly trusted repository; verify bytes and embedded `SKILL.md`.
+6. Recheck the approved discovery record, extract only `skill_files/`, and write provenance.
 
-This blueprint exists at the intersection of two AWS shipments:
+Consumers do not enumerate registries, read governance records, execute package installation hooks,
+install Python dependencies, or write CodeArtifact tokens into pip configuration.
 
-- **Bedrock AgentCore Registry** (preview, 2026-04) — a governed,
-  searchable catalog for **agents, MCP servers/tools, skills, and
-  any custom resource** an org wants to publish privately
-- **CodeArtifact** — the obvious-but-rarely-paired private artifact
-  backend for the things in that catalog
+## Quick start
 
-Together they solve a problem most enterprises haven't articulated yet
-but will hit by mid-2026: **AI resources have become enterprise IP,
-and they need the same governance you give code, infrastructure,
-and data**.
-
-The Day-1 demo focuses on **Skills** because that's where the privacy
-case is sharpest:
-
-In 2025-2026, **Agent Skills became how teams encode their SOPs**:
-financial analysis playbooks, incident triage runbooks, data discovery
-methodologies, compliance review checklists. A skill is no longer a
-prompt — it's a piece of operational IP that an AI agent will execute
-without further human translation.
-
-That makes "where do skills live and who can publish them" a real
-governance question:
-
-- **Privacy** — a financial-analysis skill embeds internal margin
-  conventions, customer tiers, pricing rules. **It cannot live on a
-  public marketplace or in a public GitHub.**
-- **Compliance** — MAS/HKMA/PBOC, HIPAA, EU AI Act all treat
-  agent-executable instructions as auditable artifacts. You need
-  versioning, approval trails, immutable history.
-- **Discoverability at scale** — once an org has 50+ skills, search
-  and trust signals matter more than git URLs in a Confluence page.
-
-Public skill marketplaces (Anthropic's, npm-style hubs like
-`skills.sh`) and self-hosted hobbyist projects (e.g., iflytek's
-SkillHub) **don't fit the enterprise constraint**. AWS shipped
-Bedrock AgentCore Registry in 2026-04 specifically for this gap.
-
-This repo is the missing piece: **how to actually wire AWS Agent
-Registry + CodeArtifact into a working private skill distribution
-pipeline**, with one-click infrastructure and a demo skill you can
-verify against your own Claude Code install.
-
-[→ Full rationale: `docs/01-why-private-skills.md`](docs/01-why-private-skills.md)
-
-## Architecture (1-minute version)
-
-<p align="center">
-  <img src="docs/images/architecture.svg" alt="Architecture overview" width="900">
-</p>
-
-Four actors: **Author / CI** pushes the skill to two backends in parallel — the artifact (PyPI package) goes to **CodeArtifact**, the metadata goes to the **Agent Registry**. The **consumer** (a developer, or Claude Code / AgentCore Runtime itself) searches the Registry, follows the `packages[]` pointer in the returned metadata to `pip install` from CodeArtifact, lands the files under `~/.claude/skills/<name>/`, and the agent picks the skill up on its next prompt.
-
-[→ Full architecture: `docs/02-architecture.md`](docs/02-architecture.md)
-
-## What's in this blueprint
-
-The Day-1 scope (verified end-to-end):
-
-| Concern | AWS service used | What this repo provides |
-|---|---|---|
-| **Discovery + governance** | Bedrock AgentCore Registry | CDK that creates the registry; Python scripts that publish/approve records; reference `skillDefinition` schema |
-| **Artifact storage** | CodeArtifact (PyPI repo) | CDK that creates domain + repo; `pyproject.toml` template for text-only skills |
-| **Skill format** | (the SKILL.md spec) | One real example: `aws-cost-anomaly-triage` with frontmatter + 6 resource files |
-| **Activation** | (consumer-side) | `postinstall.py` console script + `04_consume_skill.py` showing search → install → activate end-to-end |
-| **One-click deploy** | AWS CDK (TypeScript) | `cdk deploy` provisions everything in ~3 minutes |
-| **Auth** | IAM today, JWT/OIDC shipped by AWS | Working IAM auth in scripts; direct-JWT is a GA service capability (any OAuth 2.0 IdP) awaiting a CDK construct here — docs/05, docs/10 |
-
-The Day-N scope (documented, ready to extend):
-
-The same registry holds four `descriptorType`s. This blueprint demos
-`AGENT_SKILLS`; the others are equally first-class:
-
-| `descriptorType` | What it catalogs | Schema |
-|---|---|---|
-| `AGENT_SKILLS` | Reusable SOPs (this demo) | SKILL.md + skillDefinition v0.1.0 |
-| `MCP` | MCP servers / tools | MCP server.json (open spec) |
-| `A2A` | Agents | Google A2A Agent Card |
-| `CUSTOM` | Anything else (KBs, Lambda tools, guardrails, Cedar policies, SFN state machines, eval sets, schemas, …) | You define the JSON shape |
-
-A walked-through "customer care" example registering 18 resources
-across all four types lives in
-[`docs/07-extending-to-other-resources.md`](docs/07-extending-to-other-resources.md).
-
-## What you can do with it in 10 minutes
+Requires Python 3.11+, Node.js 20+, a current AWS CLI v2 with the GA Registry commands, and
+separate preconfigured publisher, curator and consumer AWS profiles.
 
 ```bash
-# 1. Deploy infra (CodeArtifact domain + repo, Agent Registry)
-cd cdk && npm install && npx cdk deploy --all
-
-# 2. Build & publish the example skill to CodeArtifact
-cd ../skill-package && python3 -m build
-aws codeartifact login --tool twine --domain skills-demo --repository skills-prod --region us-east-1
-python3 -m twine upload --repository codeartifact dist/*
-
-# 3. Register, approve, and verify end-to-end discovery
-cd ../scripts
-python3 02_register_skill.py
-python3 03_approve_skill.py
-sleep 30   # the search index takes 15-30s to pick up a freshly approved record
-python3 04_consume_skill.py
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[publish]'
+cd cdk
+npm ci
+npx cdk synth
+npx cdk diff --all
+npx cdk deploy --all
+cd ..
+export AGENT_REGISTRY_ARN='arn:aws:agent-registry:us-east-1:YOUR_ACCOUNT_ID:registry/YOUR_REGISTRY_ID'
+AWS_PROFILE=publisher python skills/publish-skill/scripts/publish.py --package-dir skill-package --auto-submit
+AWS_PROFILE=curator python scripts/03_approve_skill.py --reason 'Reviewed content and digest'
+AWS_PROFILE=consumer python scripts/04_consume_skill.py --target-dir ./demo-skills
+python scripts/05_verify_installed_skill.py ./demo-skills/aws-cost-anomaly-triage
 ```
 
-After step 3, `~/.claude/skills/aws-cost-anomaly-triage/` exists and
-Claude Code automatically lists the skill alongside its built-ins.
+Deploying creates billable resources. Use `AgentRegistryStack.RegistryArn` as the ARN above.
+Discovery indexing is eventually consistent; retry a search miss rather than bypassing approval.
+The scripts do not create AWS profiles or grant their permissions.
 
-## How authors publish — with `publish-skill` (the meta-skill)
+See [the complete walkthrough](docs/03-demo-walkthrough.md), [IAM separation](docs/09-publishing-iam.md),
+[team isolation](docs/10-end-user-access.md), [MCP setup](docs/04-dynamic-discovery.md),
+[integrity model](docs/12-record-artifact-integrity.md) and [CDK lifecycle](cdk/README.md).
 
-The blueprint ships a special skill at **`skills/publish-skill/`**.
-It is itself a skill, but its job is to **help authors publish other
-skills to the Registry**. Once installed in `~/.claude/skills/`, an
-author just says "publish this skill" in Claude Code and the entire
-build → upload → register → submit-for-approval flow runs.
+## Boundaries
 
-```bash
-# one-time setup (per machine)
-mkdir -p ~/.skillpublish && cat > ~/.skillpublish/config.toml <<'EOF'
-[default]
-region = "us-east-1"
-codeartifact_domain = "skills-demo"
-codeartifact_repository = "skills-prod"
-registry_name = "skills-demo-registry"
-EOF
+- Supports a single platform-independent, dependency-free wheel with at most 20 MiB compressed/expanded content.
+- Matching hashes prove consistency with approval, not that the skill is harmless.
+- Provenance manifests are not signatures; an attacker modifying both files and the manifest can defeat local checks.
+- Deprecating a registry record does not revoke local copies. Approval rechecks and activation are not an atomic transaction.
+- Repository download permission is separate from approval. A caller can bypass this client and fetch an unapproved artifact
+  directly; server-side approval-gated artifact access would require a separate quarantine/promotion workflow.
+- Use separate registries and IAM boundaries for sensitive teams. Search filters are not authorization.
+- OAuth discovery, EventBridge approval workflows, RAM sharing and organization auto-detection remain extension work.
 
-# every time you publish a new skill
-cd path/to/your-new-skill/      # has pyproject.toml + src/<pkg>/skill_files/SKILL.md
-# In Claude Code, say: "publish this skill"
-# Claude triggers the publish-skill skill, which runs publish.py:
-#   build → twine upload → CreateRegistryRecord → stop at DRAFT for review
-```
+The native CloudFormation registry is retained on deletion. The GA stack is deliberately named
+`AgentRegistryStack`, separate from the old Preview stack. Existing data needs an explicit migration.
+The Preview namespace closes on 2026-09-17; see [migration](docs/11-ga-migration.md).
 
-**Permission is enforced by IAM, not by the skill.** Even if
-`publish-skill` is installed on a machine, **a user without
-`codeartifact:PublishPackageVersion` and
-`bedrock-agentcore:CreateRegistryRecord` is denied by IAM.** That's
-the real guardrail; the skill is the convenience layer that lowers
-the friction.
-
-> **About Readers (regular end-users)**: The IAM model above is for
-> **Publisher / Curator / Admin** — small, trusted, AWS-credentialed
-> roles. **Business users, analysts, support agents** — large
-> populations who cannot hold AWS credentials — go through a
-> **Cognito User Pool + Identity Pool** path that exchanges JWTs for
-> short-lived IAM credentials. Their machines have zero AWS config
-> files; secrets live in the OS keyring. Experience: "open browser,
-> SSO login once, transparent for 30 days." See
-> [docs/10-end-user-access.md](docs/10-end-user-access.md).
-
-Four personas + the IAM policies that map to them are documented
-in [docs/09-publishing-iam.md](docs/09-publishing-iam.md):
-- **Reader**: everyone — search + install approved skills
-- **Publisher**: scoped to a team — create + submit-for-approval
-- **Curator**: a small list — approve / reject (**Publishers
-  cannot approve their own records** by separation of duty)
-- **Admin**: very few — manages the registry itself
-
-Full author-facing doc: [docs/08-publishing-workflow.md](docs/08-publishing-workflow.md).
-
-## Mental model — what Registry is and isn't
-
-The single most common misconception about AWS Agent Registry is
-that it's a "skill download service". It isn't. Get this right and
-the rest of the design follows.
-
-**Registry is a discovery + governance service for metadata. It does
-not host artifacts and it does not install anything.**
-
-The MCP endpoint a registry exposes contains exactly **one** tool:
-
-```
-search_registry_records(searchQuery, maxResults, filter)
-```
-
-No `install`, no `download`, no `activate`. Intentional. Compare to
-how npm works:
-
-| | npm ecosystem | Agent Registry ecosystem |
-|---|---|---|
-| Search service | `registry.npmjs.org` | Agent Registry MCP endpoint |
-| Search command | `npm search` | `search_registry_records` |
-| Install command | `npm install` (CLI, client-side) | `pip install` (run by Claude Code's Bash tool) |
-| Local install dir | `~/.node_modules/` | `~/.claude/skills/` |
-| Auto-load installed | Node `require()` resolution | Claude Code scans `~/.claude/skills/` on every prompt |
-
-So when Claude Code uses a private skill, three independent things
-happen — and they are **decoupled by design**:
-
-```
-1. DISCOVER (remote, metadata-only, KB-sized)
-   Claude Code → Registry MCP → search_registry_records
-   Returns: SKILL.md + packages[] pointers
-   No artifact transferred.
-
-2. DECIDE (Claude reasoning, no API call)
-   Claude reads the skillMd, decides whether to:
-     (a) inline the SKILL.md into context for one-shot use, OR
-     (b) install persistently via Bash, OR
-     (c) skip — already installed locally
-
-3. INSTALL (only if 2b, runs Claude Code's built-in Bash tool)
-   pip install <pkg> from CodeArtifact + post-install copy
-   Idempotent: re-running pip on a same-version package is a no-op.
-```
-
-The Registry never *pushes* a skill to your machine. The Registry
-never knows whether you have a skill installed locally. Those two
-concerns belong to the agent runtime (Claude Code) and to your
-consumer scripts.
-
-> **What that decoupling costs you**: because the Registry stores pointers,
-> it **cannot by itself guarantee that what you discovered is what you
-> ran**. That splits into four independent gaps — record vs. artifact bytes,
-> the record's `skillMd` vs. the wheel's `SKILL.md`, approved revision vs.
-> installed version, and remote record vs. local `~/.claude/skills/` — each
-> needing a different mechanism (digest pinning, a CI equality check, an
-> install-time approval re-check, a local attestation manifest). This repo
-> currently pins versions but carries no digest. Full analysis and work
-> list: **[docs/12 — record ↔ artifact integrity](docs/12-record-artifact-integrity.md)**.
->
-> Note that the two consumption paths above need **different** mechanisms.
-> Persistent install (2b) is what digests protect. But when Claude embeds
-> `SKILL.md` for one-off use (2a), **the record itself is the executed
-> artifact** — no wheel is fetched, so a digest protects nothing; only a
-> CI-derived, approval-gated `skillMd` does.
-
-> **The same decoupling extends to the server side**: the Registry
-> is unaware of *where* the resource a record describes actually
-> runs. An `MCP` record's server can live in AgentCore Runtime,
-> Lambda, ECS, your own Kubernetes, GovCloud, or another cloud
-> entirely — the Registry indexes the metadata and enforces
-> governance, nothing else. AWS frames this in the launch post as
-> "works with any MCP Server, Agent, Skill or Custom Resource,
-> deployed on AWS, On-Prem or on any other Cloud environment".
-> Treat the Registry as a cross-environment catalog, not as an AWS
-> runtime accessory.
-
-### Two layers of "discovery", running in parallel
-
-```
-┌──────────────────────────────────────┐
-│ Remote layer                         │
-│ Registry MCP / SDK                   │
-│ → returns metadata for the org's     │
-│   approved catalog                   │
-│ → unaware of your local filesystem   │
-└──────────────────────────────────────┘
-                 ┊  no communication
-                 ┊
-┌──────────────────────────────────────┐
-│ Local layer                          │
-│ Claude Code / Bedrock Runtime        │
-│ → scans ~/.claude/skills/ on every   │
-│   prompt, lists what it finds        │
-│ → unaware of the Registry            │
-└──────────────────────────────────────┘
-```
-
-The two layers don't talk to each other. A skill installed yesterday
-is found by the local layer instantly, with **zero remote calls**. A
-skill the team just published is found by the remote layer, with
-**zero local effect** until someone (or some agent) decides to
-install it.
-
-### Cost of each interaction
-
-| Scenario | What runs | Bytes over the wire |
-|---|---|---|
-| Skill already in `~/.claude/skills/` | Local scan | 0 |
-| Search returns a skill, Claude inlines into context | `search_registry_records` | ~5KB metadata |
-| Search → decide to install | search + `pip install` from CodeArtifact | ~5KB metadata + ~15KB wheel |
-| Re-run install of same version | `pip install` no-ops via local cache | 0 |
-| Registry has v0.2.0, local has v0.1.0 | search + `pip install --upgrade` | metadata + delta |
-
-This is why "every Claude Code session calls the Registry" is fine.
-The calls are KB-sized metadata lookups, not artifact transfers.
-
-## Repository layout
-
-```
-.
-├── README.md                          # this file
-├── docs/
-│   ├── 01-why-private-skills.md            # the enterprise case (Day-1 framing)
-│   ├── 02-architecture.md                  # service mapping + diagrams
-│   ├── 03-demo-walkthrough.md              # the 4-script flow with timings
-│   ├── 04-dynamic-discovery.md             # MCP endpoint: how Claude Code finds skills
-│   ├── 05-auth-placeholder.md              # IAM today, JWT/OIDC TODO
-│   ├── 06-future-optimizations.md          # cross-account, KMS CMK, EventBridge, OCI
-│   ├── 07-extending-to-other-resources.md  # MCP, KBs, Lambda tools, guardrails, etc.
-│   ├── 08-publishing-workflow.md           # author-facing: how to publish your own skill
-│   ├── 09-publishing-iam.md                # platform-team-facing: 4-tier IAM policies
-│   └── 10-end-user-access.md               # end-users via Cognito, no AWS creds on machines
-├── cdk/                               # one-click TypeScript CDK
-│   ├── bin/blueprint.ts
-│   ├── lib/codeartifact-stack.ts
-│   ├── lib/registry-stack.ts
-│   └── package.json
-├── skill-package/                     # the example skill, ready to publish
-│   ├── pyproject.toml
-│   └── src/aws_cost_anomaly_triage/
-│       ├── postinstall.py
-│       └── skill_files/
-│           ├── SKILL.md
-│           └── resources/*.md
-├── skills/                            # blueprint-bundled meta-skill + client
-│   ├── publish-skill/                 # the skill that publishes other skills
-│   │   ├── SKILL.md
-│   │   ├── resources/publish-skill-runbook.md
-│   │   └── scripts/publish.py
-│   └── skill-cli/                     # end-user JWT→IAM bridge CLI
-│       ├── skill_cli.py
-│       ├── pyproject.toml
-│       └── README.md
-├── scripts/                           # boto3 publish/approve/consume (Day-1)
-│   ├── 01_create_registry.py
-│   ├── 02_register_skill.py
-│   ├── 03_approve_skill.py
-│   └── 04_consume_skill.py
-└── examples/                          # Day-N extension placeholders
-    ├── mcp-server/
-    ├── knowledge-base/
-    ├── lambda-tool/
-    └── guardrail/
-```
-
-## Status of each section
-
-Day-1 (Skills, end-to-end):
-
-| Section | Status |
-|---|---|
-| CodeArtifact + Agent Registry CDK | ✅ Working |
-| `aws-cost-anomaly-triage` example skill | ✅ Working |
-| Publish + approve + consume scripts | ✅ Tested end-to-end |
-| MCP endpoint dynamic discovery | ✅ Documented; client config example |
-| IAM auth | ✅ Working |
-| `publish-skill` meta-skill (parameterized publisher + 4-tier IAM) | ✅ Script preflight verified; docs/08+09 written |
-| End-user access (Cognito User Pool → Identity Pool → temporary IAM) — **indirect** JWT path | ✅ CDK synth-clean; `skill-cli` client works; docs/10 written; **`examples/cognito-end-to-end/` runs live with both positive and negative tests** |
-
-Day-N extensions:
-
-| Section | Status |
-|---|---|
-| MCP server records (`descriptorType: MCP`) | 📘 Documented in `07-extending` + `examples/mcp-server/` placeholder |
-| Knowledge Base records (CUSTOM) | 📘 Documented in `07-extending` + `examples/knowledge-base/` placeholder |
-| Lambda tool records (CUSTOM) | 📘 Documented in `07-extending` + `examples/lambda-tool/` placeholder |
-| Bedrock Guardrails records (CUSTOM) | 📘 Documented in `07-extending` + `examples/guardrail/` placeholder |
-| Registry MCP endpoint **direct** JWT (CustomJWTAuthorizer with Okta/any OIDC) | ✅ **Shipped by AWS** — Cognito, Okta, Entra ID, or any OAuth 2.0 provider; corporate credentials with no individual IAM. Only our CDK construct is missing — see `docs/05-auth-placeholder.md` |
-| EventBridge approval pipeline | ✅ **Shipped by AWS** — native event to the default bus on submit-for-approval. A reference consumer is what this repo still owes — see `docs/05-auth-placeholder.md` |
-| Cross-account consumption | 🔶 Phase 2 |
-| KMS CMK on CodeArtifact | 🔶 Phase 2 |
-| Cross-registry federated search | ❌ Not shipped by AWS — `registryIds` is list-shaped but accepts exactly one. Multi-account fan-out stays transitional |
-| Record-level observability data | ❌ Not shipped by AWS — the standing advice to not build a custom OTEL aggregator holds |
-| Metadata search filters | ✅ **Shipped by AWS** — `$eq`/`$in`/`$and` over `descriptorType` etc. `04_consume_skill.py` should push its client-side filter down — see `docs/06` |
-| OCI artifact distribution | ⏸ Future — pending agentskills/agentskills spec |
-| GitHub Actions CI for publish-on-merge | ⏸ Future |
-
-> **How to read this table**: a ✅ does not mean this repo finished the
-> work — it means the work is no longer this repo's to do, because AWS
-> ships it natively and the blueprint only has to connect to it. That's the
-> intended outcome; this blueprint aims to be a thin layer over the managed
-> service.
->
-> ⚠️ **Outranking everything above**: AWS Agent Registry reaches **GA on
-> 2026-08-06**, moving from the `bedrock-agentcore` namespace to
-> `agent-registry` with a **backward-incompatible** schema change —
-> `descriptorType` is removed, `AGENT_SKILLS` becomes
-> `recordType: SKILL`, and `descriptors` is flattened. The old namespace
-> loses read and write access on **2026-09-17**. Every script and IAM policy
-> here still targets the preview namespace, deliberately: the GA boto3
-> clients do not exist yet (verified against boto3 1.42.97), so flipping now
-> would replace a working demo with `UnknownServiceError`. Per-file mapping
-> and the flip sequence: **[docs/11 — GA migration](docs/11-ga-migration.md)**.
->
-> 🚨 **If your account is new as of 2026-08-06**: with no pre-existing
-> preview registries you cannot access the `bedrock-agentcore` namespace at
-> all, and these scripts will fail outright with no graceful degradation.
-> Read docs/11 first.
-
-[→ Roadmap, including a "what AWS has since shipped" scoreboard: `docs/06-future-optimizations.md`](docs/06-future-optimizations.md)
-
-## Why now (the SA take)
-
-Two timing facts make this blueprint valuable in 2026-Q2:
-
-1. **AWS Agent Registry just shipped (2026-04 preview)**. There is
-   currently **no AWS official blog or sample repo that connects it
-   to CodeArtifact for skill distribution**. This repo fills that gap
-   with verified end-to-end code.
-2. **Skills as enterprise IP is a real concern but most teams haven't
-   hit it yet**. The first wave of customers asking "where do my
-   private skills live" is happening now. Having a working blueprint
-   means an SA conversation goes from "let me get back to you" to
-   "here's the repo, let's adapt it to your IdP."
-
-This repo is intentionally opinionated where AWS docs aren't:
-PyPI-via-CodeArtifact is the recommended artifact backend for
-text-and-script skills, IAM auth is the day-1 path, JWT/OIDC is the
-day-2 path, and the registry is the right home for every governable
-AI resource type — not just skills. Disagreements welcome — file an
-issue.
-
-## Inspiration / prior art
-
-- AWS Agent Registry public docs and the 2026-04 preview launch blog
-- Pinterest's "central registry + paved path" MCP architecture (ByteByteGo deep dive)
-- ToolHive / Stacklok Enterprise (the production-ready MCP equivalent for tools)
-- iflytek/skillhub (the cautionary tale: protocol mismatch with where the industry went)
-- Anthropic's `anthropics/skills` repo (the format definition)
-
-## License
-
-Apache 2.0. See [LICENSE](LICENSE).
-
-## Disclaimer
-
-The author is an AWS Solutions Architect; this is a personal
-blueprint, not an AWS-published reference. Validate against your
-account-specific compliance requirements before production use.
+Research pages `docs/02`, `05`, `06`, `07` and `08` retain historical design context.
+Their Preview snippets are not current deployment instructions.

@@ -3,9 +3,7 @@
 Usage:
     python3 register.py
 
-Targets the PREVIEW namespace. At GA (2026-08-06) this becomes
-recordType="CUSTOM" and descriptors={"custom": {"data": ...}} — see
-docs/11-ga-migration.md. CUSTOM records get no URL synchronization, so
+Uses the GA namespace. CUSTOM records get no URL synchronization, so
 anything volatile in `spec` (documentCount, lastIngested) drifts with
 nothing to correct it; see the multi-KB section in docs/07.
 """
@@ -14,10 +12,10 @@ from __future__ import annotations
 
 import json
 import sys
-import time
 from pathlib import Path
 
 import boto3
+from registry_blueprint.registry import find_registry, wait_record
 
 REGION = "us-east-1"
 REGISTRY_NAME = "skills-demo-registry"
@@ -25,10 +23,7 @@ HERE = Path(__file__).parent
 
 
 def find_registry_id(client) -> str:
-    for r in client.list_registries().get("registries", []):
-        if r.get("name") == REGISTRY_NAME:
-            return r["registryArn"].rsplit("/", 1)[-1]
-    sys.exit(f"registry {REGISTRY_NAME!r} not found")
+    return find_registry(client, REGISTRY_NAME)
 
 
 def main() -> None:
@@ -39,28 +34,24 @@ def main() -> None:
             "swap in a real Knowledge Base ARN before running."
         )
 
-    client = boto3.client("bedrock-agentcore-control", region_name=REGION)
+    client = boto3.client("agent-registry-control", region_name=REGION)
     rid = find_registry_id(client)
 
     resp = client.create_registry_record(
         registryId=rid,
         name=body["name"],
+        displayName=body["name"],
         description=body["description"],
-        descriptorType="CUSTOM",
+        recordType="CUSTOM",
         descriptors={
-            "custom": {"inlineContent": json.dumps(body["customBody"])},
+            "custom": {"data": json.dumps(body["customBody"])},
         },
         recordVersion=body["recordVersion"],
     )
     record_id = resp["recordArn"].rsplit("/", 1)[-1]
     print(f"created CUSTOM record {record_id} (kind={body['customBody']['kind']})")
 
-    deadline = time.time() + 60
-    while time.time() < deadline:
-        rec = client.get_registry_record(registryId=rid, recordId=record_id)
-        if rec["status"] == "DRAFT":
-            break
-        time.sleep(2)
+    wait_record(client, rid, record_id, "DRAFT")
 
     client.submit_registry_record_for_approval(
         registryId=rid, recordId=record_id

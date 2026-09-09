@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["agent-registry:SearchDiscoverableRegistryRecords"],
+      "Resource": ["arn:aws:agent-registry:REGION:ACCOUNT_ID:registry/REGISTRY_ID"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["agent-registry:GetDiscoverableRegistryRecord"],
+      "Resource": ["arn:aws:agent-registry:REGION:ACCOUNT_ID:registry/REGISTRY_ID/record/*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["codeartifact:GetPackageVersionAsset"],
+      "Resource": ["arn:aws:codeartifact:REGION:ACCOUNT_ID:package/DOMAIN/REPOSITORY/pypi/*/*"]
+    }
+  ]
+}

@@ -1,5 +1,9 @@
 # Publishing workflow — for skill authors
 
+> Historical Preview workflow. Use [the GA walkthrough](03-demo-walkthrough.md) and the
+> [current publisher runbook](../skills/publish-skill/resources/publish-skill-runbook.md).
+> GA publication derives the Markdown and digest from one wheel and verifies the uploaded asset.
+
 > Audience: an engineer in your organization who wrote a skill and
 > wants to publish it. Assumes the platform team has already
 > deployed the registry and CodeArtifact (if not, see

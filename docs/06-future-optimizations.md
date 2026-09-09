@@ -1,5 +1,13 @@
 # Future optimizations — roadmap and placeholders
 
+> Update 2026-09-09: GA code migration, native CloudFormation Registry provisioning,
+> discovery-plane-only consumption, explicit team scopes, wheel digest verification and local
+> provenance are now implemented. SDK-only CodeArtifact download replaces pip activation.
+> The roadmap below is retained as historical research, not a current implementation status list.
+> See [walkthrough](03-demo-walkthrough.md) and [integrity boundaries](12-record-artifact-integrity.md).
+> AWS also now supports RAM sharing and organization detection of AgentCore resources;
+> integration examples for those remain future work here.
+
 This is the "what we'd build next if this PoC graduates" page.
 Items are loosely ordered by ROI for a typical enterprise rollout.
 

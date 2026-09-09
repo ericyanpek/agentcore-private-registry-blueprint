@@ -18,17 +18,12 @@ export interface IdentityStackProps extends cdk.StackProps {
    *     'finops-readers': 'finops-skills-prod',
    *     'customer-care-readers': 'customer-care-skills-prod',
    *   }
-   * If empty, only an "everyone" default reader role is created with
-   * access to all repos in the domain.
+   * Each group must also have an explicit entry in groupRegistryMap.
    */
   groupRepoMap?: { [groupName: string]: string };
 
-  /**
-   * Whether to also create a "default" authenticated role that has
-   * read access to all repos in the domain (i.e., for users in no
-   * specific group). Recommended off in production; on for demo.
-   */
-  defaultGroupAccessAllRepos?: boolean;
+  groupRegistryMap?: { [groupName: string]: string[] };
+  defaultAccess?: { registryArn: string; repository: string };
 }
 
 /**
@@ -119,6 +114,20 @@ export class IdentityStack extends cdk.Stack {
     });
 
     const groupRepoMap = props.groupRepoMap ?? {};
+    const groupRegistryMap = props.groupRegistryMap ?? {};
+    if (
+      Object.keys(groupRepoMap).sort().join(',') !==
+      Object.keys(groupRegistryMap).sort().join(',')
+    ) {
+      throw new Error('groupRepoMap and groupRegistryMap must contain the same groups');
+    }
+    for (const registryArns of Object.values(groupRegistryMap)) {
+      if (registryArns.length === 0 || registryArns.some(
+        (arn) => !/^arn:aws(?:-[a-z]+)*:agent-registry:[a-z0-9-]+:[0-9]{12}:registry\/[a-zA-Z0-9]{12,16}$/.test(arn),
+      )) {
+        throw new Error('Each group needs explicit GA registry ARNs; wildcards are not allowed');
+      }
+    }
     for (const [groupName] of Object.entries(groupRepoMap)) {
       new cognito.CfnUserPoolGroup(this, `Group_${groupName}`, {
         userPoolId: this.userPool.userPoolId,
@@ -140,14 +149,8 @@ export class IdentityStack extends cdk.Stack {
     });
     this.identityPoolId = identityPool.ref;
 
-    // Helper to build a role assumable by Identity Pool authenticated users.
-    //
-    // `repos === undefined` means "no CodeArtifact access at all" (Registry
-    // search only); `repos === []` means "all repos in the domain" (wildcard,
-    // for demo); `repos === ["foo", "bar"]` means scoped to those repo
-    // ARNs.
     const buildAuthenticatedRole = (
-      logicalId: string, repos: string[] | undefined,
+      logicalId: string, repository: string | undefined, registryArns: string[],
     ): iam.Role => {
       const role = new iam.Role(this, logicalId, {
         assumedBy: new iam.FederatedPrincipal(
@@ -166,79 +169,42 @@ export class IdentityStack extends cdk.Stack {
         maxSessionDuration: cdk.Duration.hours(1),
       });
 
-      // CodeArtifact pull permissions (skipped entirely when repos is undefined)
-      if (repos !== undefined) {
-        const caResources = repos.length === 0
-          ? [
-              `arn:aws:codeartifact:${this.region}:${this.account}:domain/${props.codeArtifactDomain}`,
-              `arn:aws:codeartifact:${this.region}:${this.account}:repository/${props.codeArtifactDomain}/*`,
-              `arn:aws:codeartifact:${this.region}:${this.account}:package/${props.codeArtifactDomain}/*/pypi/*/*`,
-            ]
-          : repos.flatMap((repo) => [
-              `arn:aws:codeartifact:${this.region}:${this.account}:domain/${props.codeArtifactDomain}`,
-              `arn:aws:codeartifact:${this.region}:${this.account}:repository/${props.codeArtifactDomain}/${repo}`,
-              `arn:aws:codeartifact:${this.region}:${this.account}:package/${props.codeArtifactDomain}/${repo}/pypi/*/*`,
-            ]);
+      if (repository !== undefined) {
+        if (!/^[a-z][a-z0-9._-]{1,99}$/.test(repository)) {
+          throw new Error('Repository names must be explicit, without wildcards');
+        }
         role.addToPolicy(new iam.PolicyStatement({
-          sid: 'CodeArtifactPullOnly',
-          actions: [
-            'codeartifact:GetAuthorizationToken',
-            'codeartifact:GetRepositoryEndpoint',
-            'codeartifact:ReadFromRepository',
-            'codeartifact:GetPackageVersionAsset',
-            'codeartifact:GetPackageVersionReadme',
-            'codeartifact:DescribePackage',
-            'codeartifact:DescribePackageVersion',
-            'codeartifact:ListPackageVersions',
-            'codeartifact:ListPackageVersionAssets',
-            'codeartifact:ListPackages',
-            'codeartifact:ListRepositories',
+          sid: 'DownloadSkillAsset',
+          actions: ['codeartifact:GetPackageVersionAsset'],
+          resources: [
+            `arn:${this.partition}:codeartifact:${this.region}:${this.account}:package/${props.codeArtifactDomain}/${repository}/pypi/*/*`,
           ],
-          resources: caResources,
-        }));
-        role.addToPolicy(new iam.PolicyStatement({
-          sid: 'CodeArtifactBearerToken',
-          actions: ['sts:GetServiceBearerToken'],
-          resources: ['*'],
-          conditions: {
-            StringEquals: {
-              'sts:AWSServiceName': 'codeartifact.amazonaws.com',
-            },
-          },
         }));
       }
-
-      // Registry read permissions (search + MCP invoke). Always granted —
-      // the Registry is the discovery layer; users who can't see the
-      // catalog can't even know what to ask for.
-      role.addToPolicy(new iam.PolicyStatement({
-        sid: 'RegistryReadOnly',
-        actions: [
-          'bedrock-agentcore:ListRegistries',
-          'bedrock-agentcore:GetRegistry',
-          'bedrock-agentcore:ListRegistryRecords',
-          'bedrock-agentcore:GetRegistryRecord',
-          'bedrock-agentcore:SearchRegistryRecords',
-          'bedrock-agentcore:InvokeRegistryMcp',
-        ],
-        resources: [`arn:aws:bedrock-agentcore:${this.region}:${this.account}:registry/*`],
-      }));
+      if (registryArns.length > 0) {
+        role.addToPolicy(new iam.PolicyStatement({
+          sid: 'DiscoverApprovedSkills',
+          actions: [
+            'agent-registry:SearchDiscoverableRegistryRecords',
+            'agent-registry:ListDiscoverableRegistryRecords',
+            'agent-registry:InvokeRegistryMcp',
+          ],
+          resources: registryArns,
+        }));
+        role.addToPolicy(new iam.PolicyStatement({
+          sid: 'ReadApprovedSkills',
+          actions: ['agent-registry:GetDiscoverableRegistryRecord'],
+          resources: registryArns.map((arn) => `${arn}/record/*`),
+        }));
+      }
 
       return role;
     };
 
-    // Default authenticated role (skills-readers / catch-all).
-    //
-    // - defaultGroupAccessAllRepos=true → wildcard CodeArtifact access on
-    //   all repos in this domain. Useful for single-team demo deployments.
-    // - default (false) → no CodeArtifact access at all; only Registry
-    //   search. Users in a specific group still get scoped CA access via
-    //   their group's role mapping. This is the safer production default —
-    //   a user who's authenticated but not in any team group can browse
-    //   the catalog but can't pull anything.
     const defaultRole = buildAuthenticatedRole(
       'DefaultReaderRole',
-      props.defaultGroupAccessAllRepos ? [] : undefined,
+      props.defaultAccess?.repository,
+      props.defaultAccess ? [props.defaultAccess.registryArn] : [],
     );
 
     // Per-group roles
@@ -246,7 +212,8 @@ export class IdentityStack extends cdk.Stack {
     for (const [groupName, repoName] of Object.entries(groupRepoMap)) {
       const role = buildAuthenticatedRole(
         `Role_${groupName}`,
-        [repoName],
+        repoName,
+        groupRegistryMap[groupName],
       );
       groupRoles[groupName] = role;
     }
@@ -307,6 +274,10 @@ export class IdentityStack extends cdk.Stack {
       value: identityPool.ref,
       description: 'For Identity Pool credentials exchange',
     });
+    new cdk.CfnOutput(this, 'DefaultReaderRoleArn', { value: defaultRole.roleArn });
+    for (const [groupName, role] of Object.entries(groupRoles)) {
+      new cdk.CfnOutput(this, `ReaderRole_${groupName}`, { value: role.roleArn });
+    }
     new cdk.CfnOutput(this, 'OidcDiscoveryUrl', {
       value: `https://cognito-idp.${this.region}.amazonaws.com/${this.userPool.userPoolId}/.well-known/openid-configuration`,
       description: 'For Registry JWT authorizer config (if used directly)',

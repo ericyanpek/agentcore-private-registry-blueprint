@@ -1,5 +1,11 @@
 # skill-cli
 
+> GA update: the credential bridge still works, but the new IdentityStack reader policies allow
+> SDK asset download rather than pip login. Use the verified `scripts/04_consume_skill.py` flow.
+> Pip-based examples below require additional permissions and do not verify Registry approval.
+> Team access now requires both `groupRepoMap` and `groupRegistryMap`; see
+> [current identity configuration](../../docs/10-end-user-access.md).
+
 A minimal client tool that bridges Cognito JWT login → temporary AWS
 IAM credentials, with **zero AWS config files containing secrets**.
 

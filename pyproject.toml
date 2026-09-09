@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentcore-private-registry-blueprint"
+version = "0.2.0"
+description = "GA Agent Registry publishing and verified private skill consumption"
+requires-python = ">=3.11"
+dependencies = ["boto3==1.43.90", "packaging>=24"]
+
+[project.optional-dependencies]
+publish = ["build>=1.2", "twine>=6"]
+
+[tool.setuptools.packages.find]
+include = ["registry_blueprint*"]

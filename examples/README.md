@@ -1,5 +1,11 @@
 # Day-N extension examples
 
+> GA update: install the shared library with `python -m pip install -e .` from the root.
+> Registry scripts and payload files use the GA namespace and schemas, checked against SDK models.
+> They have not been re-run against live endpoints. Historical Preview snippets in the explanatory
+> READMEs are not executable GA instructions; prefer each directory's Python/JSON source files.
+> The Cognito live demo is a separate older credential-flow demonstration, not GA integrity validation.
+
 Each subdirectory is a self-contained example for registering a
 non-Skill resource type into the same Agent Registry that the Day-1
 demo creates. Status notation:

@@ -1,67 +1,17 @@
-# Dynamic discovery — Claude Code via the Registry MCP endpoint
+# GA Registry discovery through MCP
 
-The `04_consume_skill.py` script uses boto3 directly. That's the
-right answer for CI/CD pipelines and automation.
+Registry discovers metadata; it does not install skills or automatically invoke discovered MCP servers.
+Treat discovery and verified installation as separate steps.
 
-For the **interactive IDE case** — a developer in Claude Code asking
-"how do I triage this cost spike" — there's a more direct path: each
-registry exposes a standards-compliant **MCP endpoint** the IDE can
-configure as just another MCP server.
+## IAM registry
 
-> ⚠️ **GA renames the tool and moves the host.** This page documents the
-> preview shape. At GA (2026-08-06): the MCP search tool
-> `search_registry_records` becomes
-> **`search_discoverable_registry_records`**; the endpoint host moves from
-> `bedrock-agentcore.{region}.amazonaws.com` to
-> `agent-registry.{region}.api.aws` (note **`.api.aws`**, not
-> `.amazonaws.com`); and the SigV4 signing service name used below changes
-> from `bedrock-agentcore` to `agent-registry`. Any MCP client config
-> copied from this page needs all three updated — see
-> [docs/11](./11-ga-migration.md).
+The CDK output `McpEndpoint` uses:
 
-## The endpoint
-
-```
-https://bedrock-agentcore.{region}.amazonaws.com/registries/{registryId}/mcp
+```text
+https://agent-registry.REGION.api.aws/registries/REGISTRY_ID/mcp
 ```
 
-The CDK stack outputs the full URL as `McpEndpoint`. Substitute your
-own values for `{region}` and `{registryId}`:
-
-```
-https://bedrock-agentcore.us-east-1.amazonaws.com/registries/<registryId>/mcp
-```
-
-This endpoint speaks **MCP spec 2025-11-25**. It exposes exactly one
-tool:
-
-```
-Tool name: search_registry_records
-Description: Searches for registry records using natural language queries.
-             Returns metadata for matching records.
-Parameters:
-  searchQuery (required): string  — natural language query
-  maxResults  (1-20, default 10) : integer
-  filter      : object — $eq/$ne/$in + $and/$or on (name, descriptorType, version)
-```
-
-**Just one tool**, `search_registry_records`. Approval, deletion, and
-record management deliberately don't have MCP tools — those are
-governance operations and stay on the SDK / Console path.
-
-## Two auth modes
-
-Different MCP clients support different auth styles. Both are
-supported by this same endpoint.
-
-### Mode A — IAM auth via stdio proxy
-
-MCP spec doesn't natively understand AWS SigV4, so AWS ships a small
-stdio adapter, `mcp-proxy-for-aws`, that the client launches as a
-subprocess. The proxy translates between MCP-over-stdio (what Claude
-Code speaks to it) and HTTPS-with-SigV4 (what the registry expects).
-
-`~/.claude/mcp.json` (or project-level `.claude/mcp.json`):
+An MCP client that cannot sign SigV4 requests can use the AWS MCP proxy:
 
 ```json
 {
@@ -70,148 +20,39 @@ Code speaks to it) and HTTPS-with-SigV4 (what the registry expects).
       "type": "stdio",
       "command": "uvx",
       "args": [
-        "mcp-proxy-for-aws@latest",
-        "https://bedrock-agentcore.us-east-1.amazonaws.com/registries/<registryId>/mcp",
-        "--service", "bedrock-agentcore",
+        "mcp-proxy-for-aws",
+        "https://agent-registry.us-east-1.api.aws/registries/REGISTRY_ID/mcp",
+        "--service", "agent-registry",
         "--region", "us-east-1",
-        "--profile", "my-profile"
+        "--profile", "consumer"
       ]
     }
   }
 }
 ```
 
-Best for: developers with corporate SSO + AWS profile already
-configured (e.g., IAM Identity Center).
+For repeatable enterprise distribution, pin the proxy to the version verified with your client.
+Use the client's supported MCP configuration location rather than assuming all IDEs share one file.
+Verify the endpoint with MCP `tools/list`; the GA search tool is
+`search_discoverable_registry_records`, not the Preview `search_registry_records`.
 
-### Mode B — JWT/OIDC auth, native HTTP
+The IAM identity needs `agent-registry:InvokeRegistryMcp` and the relevant discovery actions on
+the configured registry/records. The minimal SDK-only policy in `iam/consumer-policy.json` intentionally
+omits MCP invoke; add it for this route. IdentityStack's reader roles already include it.
 
-If the registry was created with a JWT authorizer, MCP clients
-connect over HTTP directly with OAuth2 tokens — no proxy needed:
+After selecting an approved release, use `scripts/04_consume_skill.py` with its explicit version
+to download and verify it. Do not ask the IDE to run arbitrary installation commands from metadata.
+Reading inline `SKILL.md` for one-off use does not verify or load the wheel's supporting resources.
 
-```bash
-aws bedrock-agentcore-control update-registry \
-  --registry-id <registryId> \
-  --authorizer-configuration '{
-    "customJWTAuthorizer": {
-      "discoveryUrl": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_xxx/.well-known/openid-configuration",
-      "allowedClients": ["abcdef123456"]
-    }
-  }'
-```
+## OAuth/JWT registry
 
-`mcp.json`:
+GA supports native OAuth/JWT discovery through an enterprise IdP. Configure discovery authorization
+when provisioning an appropriate registry; the IAM blueprint does not provision this mode.
+One registry uses its configured authorization type; do not assume a single endpoint accepts IAM and
+JWT simultaneously. All governance APIs still require IAM.
 
-```json
-{
-  "mcpServers": {
-    "private-skills-registry": {
-      "type": "http",
-      "url": "https://bedrock-agentcore.us-east-1.amazonaws.com/registries/<registryId>/mcp",
-      "oauth": {
-        "clientId": "abcdef123456",
-        "callbackPort": 8765
-      }
-    }
-  }
-}
-```
+OAuth discovery does not grant CodeArtifact access. For artifact download, retain the separate temporary
+IAM credential path (for example, Cognito Identity Pool and `skill-cli`).
 
-Best for: external contractors, multi-account orgs, scenarios where
-giving everyone an IAM principal is not how identity is administered.
-
-See [docs/05-auth-placeholder.md](./05-auth-placeholder.md) for the
-full Cognito setup walk-through (Phase 2).
-
-## End-to-end interaction
-
-```
-T=0   Claude Code starts
-      ├─ reads mcp.json
-      └─ spawns `uvx mcp-proxy-for-aws ...` (stdio)
-
-T+50ms  MCP initialize handshake
-        Claude Code → proxy → registry
-        Registry returns serverInfo + capabilities
-
-T+100ms  tools/list
-         Registry returns: [search_registry_records]
-         Claude Code adds the tool to its tool registry
-
-T+...   User: "help me triage this AWS cost spike"
-        Claude reasons → decides search_registry_records is relevant
-        tools/call:
-          name = search_registry_records
-          arguments.searchQuery = "AWS cost spike triage"
-        Registry returns 1 hit, full skillMd inline
-
-T+...   Claude reads the SKILL.md → has 3 options:
-
-         (a) inline:    pull skillMd into conversation context, follow it
-         (b) install:   bash → pip install + activate (persists)
-         (c) inspect:   ask user which option they want
-```
-
-## Why the registry returns the full SKILL.md
-
-The MCP search response includes the **entire** `skillMd.inlineContent`
-of each hit. Up to ~100KB, this is an intentional design: the agent
-can decide whether to use the skill **without making a follow-up
-download call**.
-
-For a 3.5KB SKILL.md (our demo), this is roughly 700 tokens of
-context — well below the threshold where you'd want to defer the
-read.
-
-For larger skills with substantial resource files, the agent typically
-takes the install path (b) so the resource files end up on local
-disk and can be referenced lazily.
-
-## Permissions
-
-Two extra IAM actions are needed for MCP-endpoint access (vs. SDK):
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "bedrock-agentcore:InvokeRegistryMcp",
-        "bedrock-agentcore:SearchRegistryRecords"
-      ],
-      "Resource": "arn:aws:bedrock-agentcore:us-east-1:*:registry/*"
-    }
-  ]
-}
-```
-
-Verify the proxy can reach the endpoint:
-
-```bash
-curl -sS -X POST \
-  "https://bedrock-agentcore.us-east-1.amazonaws.com/registries/<registryId>/mcp" \
-  -H "Content-Type: application/json" \
-  -H "X-Amz-Security-Token: ${AWS_SESSION_TOKEN}" \
-  --aws-sigv4 "aws:amz:us-east-1:bedrock-agentcore" \
-  --user "${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_registry_records","arguments":{"searchQuery":"weather"}}}'
-```
-
-(`weather` returns 0 hits but exercises the auth + protocol path.)
-
-## Comparison to the SDK path
-
-| | SDK (boto3) | MCP endpoint |
-|---|---|---|
-| Auth | Native AWS credentials | IAM via proxy *or* JWT native |
-| Caller | Programs (CI/CD, custom scripts) | Agents (Claude Code, Cursor, Kiro) |
-| Tool surface | Full CRUD on records | `search_registry_records` only |
-| Audit | CloudTrail | CloudTrail (same) |
-| Latency | Direct HTTPS, ~100ms | Direct HTTPS or stdio→HTTPS, ~150ms |
-| Versions seen | Same data | Same data (only `APPROVED` for non-admins) |
-
-Use SDK for governance/automation. Use MCP for IDE-driven discovery.
-
-→ Next: [auth & permissions placeholder](./05-auth-placeholder.md)
+References: [discovery authorization](https://docs.aws.amazon.com/help-panel/bedrock-agentcore/latest/console/hp-registry-search-api-auth.html),
+[GA migration](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/registry-faq.html).

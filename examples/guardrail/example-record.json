@@ -1,7 +1,7 @@
 {
   "name": "pii-strict-guardrail",
   "description": "Strict PII redaction + financial/legal advice block. Apply to all customer-facing surfaces.",
-  "descriptorType": "CUSTOM",
+  "recordType": "CUSTOM",
   "recordVersion": "2.1.0",
   "customBody": {
     "kind": "guardrail",

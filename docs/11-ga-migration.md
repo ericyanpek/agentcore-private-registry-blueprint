@@ -5,20 +5,22 @@ AWS Agent Registry reaches GA on **2026-08-06**. It leaves the
 and the registry/record data model changes in ways that **break backward
 compatibility**. The old namespace shuts down **2026-09-17**.
 
-Everything in this repo currently targets the preview namespace. This doc
-is the migration plan for it: what changes, what it maps to here, and why
-the code has not been flipped yet.
+Executable code now targets GA. The mappings below retain the original
+migration research; before/after snippets and the old work list are historical.
+Current operations are documented in [the GA walkthrough](03-demo-walkthrough.md).
+Existing Preview data still needs a separate migration; changing code does not move it.
 
 ## Status of this repo
 
 | | |
 |---|---|
-| Code targets | preview (`bedrock-agentcore`) |
-| Verified against GA SDK | ❌ not yet — see below |
-| Docs updated for GA | ✅ this doc + warnings in affected pages |
+| Code targets | GA (`agent-registry`, `agent-registry-control`) |
+| Verified against GA SDK | Boto3/Botocore 1.43.90 request models and offline Stubber checks |
+| Live GA deployment verified | Not yet; do not inherit the Preview verification claim |
+| Docs updated for GA | README and the primary publishing/consumption guides |
 
-**Why the code is still on preview.** The GA service clients do not exist
-in the current SDK. Checked 2026-08-04 with boto3/botocore 1.42.97:
+**Historical blocker, resolved.** On 2026-08-04 the GA service clients did not exist
+in boto3/botocore 1.42.97:
 
 ```
 bedrock-agentcore              YES
@@ -27,20 +29,17 @@ agent-registry                 no
 agent-registry-control         no
 ```
 
-Rewriting `boto3.client("bedrock-agentcore-control")` to
-`boto3.client("agent-registry-control")` today would turn a working demo
-into `UnknownServiceError` for everyone, including us. The sequence is:
-GA lands → SDK ships the clients → flip the code → re-run the end-to-end
-verification → then update the status table above. Not before.
+Both GA clients are now present in the pinned SDK. Scripts, record schemas,
+IAM reader policies and MCP instructions have been migrated. Live deployment
+acceptance remains separate from the offline checks.
 
-**If you are cloning this repo on or after 2026-08-06**: read the
-[hard cutoff](#the-hard-cutoff-for-new-accounts) section first. The
-scripts will very likely not run for you as-is.
+**If you have existing Preview data**: read the
+[hard cutoff](#the-hard-cutoff-for-new-accounts) section first. Do not delete the
+old stack or assume the newly provisioned GA registry already contains your records.
 
 ## The hard cutoff for new accounts
 
-This is the sharpest edge in the whole migration, and it is specific to
-public blueprints like this one.
+This section describes the old Preview code/account access, not the current GA scripts.
 
 Accounts that have **no** registries or records as of 2026-08-06 **cannot
 access AWS Agent Registry through the `bedrock-agentcore` namespace at

@@ -1,7 +1,7 @@
 {
   "name": "credit-limit-lookup",
   "description": "Looks up a customer's current credit limit by customerId. Read-only, 100 RPS.",
-  "descriptorType": "CUSTOM",
+  "recordType": "CUSTOM",
   "recordVersion": "1.0.0",
   "customBody": {
     "kind": "lambda-tool",

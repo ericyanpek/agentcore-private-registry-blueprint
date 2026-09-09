@@ -1,5 +1,9 @@
 # Beyond skills — the registry as a unified AI resource catalog
 
+> Research catalog with historical Preview payload examples. Runnable scripts/JSON under
+> `examples/` now use GA `recordType` and flat descriptors; use those rather than copying
+> old inline payloads here. Creating a CUSTOM record does not enforce policies on its target resource.
+
 > The Day-1 demo registers a skill. This page is what to do on Day 2,
 > Day 30, Day 365 — when your org's catalog grows past skills.
 

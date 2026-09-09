@@ -36,6 +36,7 @@ cdk/cdk.context.json
 .env
 .env.local
 *.local
+demo-skills/
 
 # AWS
 .aws-sam/

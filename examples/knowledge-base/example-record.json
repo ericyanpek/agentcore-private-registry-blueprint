@@ -1,7 +1,7 @@
 {
   "name": "product-faq-kb-v3",
   "description": "RAG knowledge base of product FAQ — 4200+ docs, daily refresh, English-only.",
-  "descriptorType": "CUSTOM",
+  "recordType": "CUSTOM",
   "recordVersion": "3.0.0",
   "customBody": {
     "kind": "knowledge-base",

@@ -21,26 +21,15 @@ const ca = new CodeArtifactStack(app, 'CodeArtifactStack', {
     'CodeArtifact PyPI repo backing the private skills blueprint',
 });
 
-new RegistryStack(app, 'AgentCoreRegistryStack', {
+const registry = new RegistryStack(app, 'AgentRegistryStack', {
   env,
   registryName:
     app.node.tryGetContext('registryName') ?? 'skills-demo-registry',
   description:
-    'Bedrock AgentCore Registry that catalogs skills published to ' +
+    'AWS Agent Registry that catalogs skills published to ' +
     `${ca.domainName}/${ca.repositoryName}`,
 });
 
-// Optional end-user identity layer.
-//   Set CDK context `enableIdentity=true` to deploy:
-//     npx cdk deploy --all -c enableIdentity=true
-//
-//   Group → repo mapping is configured via context `groupRepoMap`:
-//     -c 'groupRepoMap={"finops-readers":"finops-skills-prod","customer-care-readers":"customer-care-skills-prod"}'
-//
-// Reading docs/10-end-user-access.md before turning this on is
-// strongly recommended — the Cognito user pool you create here is
-// authoritative for end-user identity, so naming and group structure
-// matter.
 const enableIdentity = app.node.tryGetContext('enableIdentity') === 'true'
   || app.node.tryGetContext('enableIdentity') === true;
 if (enableIdentity) {
@@ -51,14 +40,22 @@ if (enableIdentity) {
   } else if (groupRepoMapRaw && typeof groupRepoMapRaw === 'object') {
     groupRepoMap = groupRepoMapRaw as { [k: string]: string };
   }
+  const groupRegistryMapRaw = app.node.tryGetContext('groupRegistryMap');
+  const groupRegistryMap = typeof groupRegistryMapRaw === 'string'
+    ? JSON.parse(groupRegistryMapRaw)
+    : groupRegistryMapRaw ?? {};
+  const enableDefaultReader = app.node.tryGetContext('enableDefaultReader') === 'true'
+    || app.node.tryGetContext('enableDefaultReader') === true;
   new IdentityStack(app, 'IdentityStack', {
     env,
     codeArtifactDomain: ca.domainName,
     groupRepoMap,
-    defaultGroupAccessAllRepos:
-      app.node.tryGetContext('defaultGroupAccessAllRepos') === 'true',
+    groupRegistryMap,
+    defaultAccess: enableDefaultReader
+      ? { registryArn: registry.registryArn, repository: ca.repositoryName }
+      : undefined,
     description:
       'Cognito User Pool + Identity Pool layer for end-user JWT-based ' +
-      'access to private skills (no IAM credentials on user machines).',
+      'access to private skills with temporary IAM credentials.',
   });
 }

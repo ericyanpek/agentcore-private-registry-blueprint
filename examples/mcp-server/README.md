@@ -7,7 +7,7 @@ real MCP server you control before running.
 
 Registers an MCP server you've already deployed (in AgentCore
 Runtime / Lambda / ECS / on-prem / a third-party host) into the
-registry as a `descriptorType: MCP` record. After approval,
+registry as a `recordType: MCP` record. After approval,
 consumers (Claude Code, Cursor, Kiro) can discover and connect
 to it through the registry.
 
@@ -16,9 +16,8 @@ to it through the registry.
 - An existing registry from `cdk deploy` (Day-1)
 - An MCP server reachable via HTTPS (the example below uses
   `https://mcp.example.internal/v1`)
-- For URL-sync (Path B): the server exposes a well-known
-  `server-card.json` endpoint (or any URL returning the MCP
-  server.json + tool list)
+- Install the shared blueprint package: `python -m pip install -e .` from the repository root
+- For URL-sync (Path B): a live MCP endpoint reachable by Registry with the configured source credentials
 
 ## Files
 
@@ -27,7 +26,7 @@ to it through the registry.
 
 ## Two registration paths
 
-### Path A — manual, with explicit `inlineContent`
+### Path A — manual, with explicit descriptor `data`
 
 You provide the MCP server.json + tool list as JSON inline. Best when
 the server isn't yet exposing its server.json at a well-known
@@ -40,18 +39,17 @@ python3 register.py
 
 ### Path B — URL synchronization (recommended for in-house MCP servers)
 
-The MCP server team writes **no publish code at all** — they just
-expose a well-known endpoint. The Registry sets `synchronizationType=URL`
-on the record, fetches `server.json` and `tools/list` itself,
-validates against the MCP schema, and generates a new revision every
-time the source changes.
+Configure `descriptors.mcpServer.source.fromUrl` with the live endpoint.
+Registry fetches metadata using the source's authorization configuration.
+Synchronization updates create record revisions; verify synchronization and approval behavior
+against your endpoint rather than treating this as a runtime integrity guarantee.
 
 ```bash
-# anonymous / IAM-signed fetch
+# anonymous fetch
 python3 register-url-sync.py
 
 # OAuth2-protected source (bearer token from AgentCore Identity)
-python3 register-url-sync.py --credential-provider arn:aws:bedrock-agentcore:us-east-1:<acct>:credential-provider/<id>
+python3 register-url-sync.py --credential-provider YOUR_AGENTCORE_OAUTH_PROVIDER_ARN
 ```
 
 This is the path that scales: your platform team operates the
@@ -64,7 +62,7 @@ having to integrate a publish pipeline.
 |---|---|---|
 | Source of truth | Whatever JSON you submitted | The live MCP server endpoint |
 | Drift handling | Manual: run `update-registry-record` on changes | Automatic: new revision when source changes |
-| Auth on fetch | N/A (no fetch) | Public, IAM-signed, or OAuth2 via credential provider |
+| Auth on fetch | N/A (no fetch) | This script supports anonymous/OAuth2; IAM requires an explicit source credential configuration |
 | Best for | External / third-party MCP, fixed snapshots, air-gapped publishing | In-house MCP servers, anything iterating frequently |
 | Server team writes publish code? | Yes (one-time inline JSON) | No |
 

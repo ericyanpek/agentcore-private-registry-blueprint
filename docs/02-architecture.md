@@ -1,5 +1,9 @@
 # Architecture — service mapping and design choices
 
+> Historical Preview architecture. The GA consumer now downloads and verifies wheels through
+> CodeArtifact's SDK and extracts only skill files; it does not run pip/postinstall or use
+> governance reads. See [current flow](03-demo-walkthrough.md) and [integrity](12-record-artifact-integrity.md).
+
 ## At a glance
 
 ```

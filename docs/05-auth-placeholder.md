@@ -1,5 +1,8 @@
 # Auth & permissions — index
 
+> Historical design sketches below may use Preview API shapes. Current GA authorization and
+> explicit team isolation are in [docs/09](09-publishing-iam.md) and [docs/10](10-end-user-access.md).
+
 This was the original placeholder for the entire auth story. Most of
 its content has been promoted to dedicated docs:
 

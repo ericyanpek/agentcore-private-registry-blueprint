@@ -6,7 +6,7 @@ real Lambda function before running.
 ## What this does
 
 Registers a single Lambda function as a discoverable tool, using
-`descriptorType: CUSTOM` with `kind: lambda-tool`. Agents looking
+`recordType: CUSTOM` with `kind: lambda-tool`. Agents looking
 for tools find it via search, then invoke it directly via
 AgentCore Gateway, Bedrock function-calling, or a Step Functions
 wrapper.

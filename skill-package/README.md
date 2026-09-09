@@ -1,5 +1,10 @@
 # aws-cost-anomaly-triage
 
+> GA trusted installation uses `scripts/04_consume_skill.py` from the repository, which verifies
+> the wheel and extracts its skill files without executing the console script below.
+> Manual pip/postinstall commands are a legacy packaging demonstration and provide no approval,
+> digest or provenance checks. See [the current walkthrough](../docs/03-demo-walkthrough.md).
+
 Agent skill packaged as a PyPI distribution. When installed, the
 `install-aws-cost-anomaly-triage` console script copies the skill
 files into `~/.claude/skills/aws-cost-anomaly-triage/` so they become

@@ -1,229 +1,139 @@
-# Demo walkthrough — publish, approve, discover, install
+# GA walkthrough: publish, approve, verify, activate
 
-> Verified end-to-end in a sandbox account, us-east-1, on 2026-05-25.
-> Expected wall-clock time: 5-10 minutes.
+Run from the repository root. Use Python 3.11+ and install the shared blueprint package:
 
-This page is the operations manual. Run from the repo root unless noted.
-
-## 0. Prerequisites
-
-| Tool | Version | Why |
-|---|---|---|
-| `boto3` | ≥ 1.42.88 | Earlier versions have the client but not the Registry operations |
-| `awscli` | ≥ 2.30 | For `codeartifact login --tool pip/twine` |
-| `python` | ≥ 3.9 | The example skill targets 3.9+ |
-| `twine`, `build` | latest | Standard PyPI tooling |
-| AWS region | `us-east-1` | Agent Registry preview regions: us-west-2, us-east-1, eu-west-1, ap-northeast-1, ap-southeast-2 |
-
-IAM permissions (attach to the publishing principal):
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {"Effect": "Allow", "Action": ["codeartifact:*", "sts:GetServiceBearerToken"], "Resource": "*"},
-    {"Effect": "Allow", "Action": "bedrock-agentcore:*", "Resource": "*"}
-  ]
-}
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[publish]'
 ```
 
-This is broad for demo. See [docs/05-auth-placeholder.md](./05-auth-placeholder.md)
-for least-privilege scoping by persona (admin / publisher / consumer / curator).
+For a copied `publish-skill` meta-skill, install this same package in the interpreter that runs
+its script. Copying `publish.py` alone does not include the shared validation library.
 
-## 1. Provision infrastructure (one-click CDK)
+## 1. Provision as an administrator
+
+Review [CDK lifecycle and migration](../cdk/README.md), then:
 
 ```bash
 cd cdk
-npm install
-npx cdk bootstrap          # only once per account/region
+npm ci
+npx cdk synth
+npx cdk diff --all
 npx cdk deploy --all
+cd ..
+export AGENT_REGISTRY_ARN='arn:aws:agent-registry:us-east-1:YOUR_ACCOUNT_ID:registry/YOUR_REGISTRY_ID'
 ```
 
-What this creates:
+Use the actual `AgentRegistryStack.RegistryArn` output. The built-in configuration creates
+`skills-demo/skills-prod` and `skills-demo-registry` in `us-east-1`.
+Existing CodeArtifact data is not copied or replaced by the Registry namespace migration.
+`scripts/01_create_registry.py` is an SDK-only alternative to provisioning the registry with CDK;
+do not run both to create the same named resource.
 
-- CodeArtifact **domain** `skills-demo` (KMS aws-managed)
-- CodeArtifact **repo** `skills-prod` (PyPI format)
-- Bedrock AgentCore **Registry** `skills-demo-registry` (IAM auth, manual approval)
+## 2. Configure three identities
 
-Wall time: ~2-3 minutes (the registry takes ~30s to leave `CREATING`).
+Create/configure `publisher`, `curator`, and `consumer` profiles using your organization's normal
+federation/role-assumption process. Apply [the role-specific permissions](09-publishing-iam.md).
+Do not use an administrator profile as proof that consumer isolation works.
 
-CDK outputs the registry ARN; export it for downstream scripts:
+## 3. Publish a wheel and its exact metadata
 
 ```bash
-export REGISTRY_ARN=$(aws cloudformation describe-stacks \
-  --stack-name AgentCoreRegistryStack --region us-east-1 \
-  --query 'Stacks[0].Outputs[?OutputKey==`RegistryArn`].OutputValue' \
-  --output text)
+python skills/publish-skill/scripts/publish.py --package-dir skill-package --dry-run
+AWS_PROFILE=publisher python skills/publish-skill/scripts/publish.py \
+  --package-dir skill-package --auto-submit
 ```
 
-## 2. Build and publish the example skill
+The dry run performs only local metadata checks. It does not prove AWS authorization or that a
+future build will succeed. Real publication:
+
+1. Builds one wheel in a fresh temporary output directory.
+2. Rejects wheels with Python dependencies, unsafe paths or unexpected package identities.
+3. Extracts `SKILL.md` from the wheel and compares it byte-for-byte with the source.
+4. Uploads only that wheel; the short-lived Twine token is passed in the subprocess environment,
+   not command-line arguments, pip config or `.pypirc`.
+5. Confirms the CodeArtifact asset's SHA-256 matches the built wheel.
+6. Creates a GA `SKILL` record with digest, source and package identity.
+7. Submits the draft when `--auto-submit` is present. Without it, stops at `DRAFT`.
+
+To publish an already built wheel, use `--wheel path/to/release.whl`.
+To retry after the upload succeeded but registration failed, add `--skip-upload` with the **same**
+wheel. Its digest is still compared with CodeArtifact before registration.
+Same name/version plus identical metadata reuses a record; different bytes require a new version.
+The publisher does not overwrite existing record content or approve records.
+
+`scripts/02_register_skill.py --wheel path/to/release.whl` is the register-only alternative.
+It verifies an already uploaded asset and submits a draft; it does not build or upload.
+
+## 4. Verify the pre-approval boundary
+
+Before approval:
 
 ```bash
-cd skill-package
-python3 -m build
+AWS_PROFILE=consumer python scripts/04_consume_skill.py --target-dir ./demo-skills
 ```
 
-Output:
-- `dist/aws_cost_anomaly_triage-0.1.0.tar.gz` (sdist)
-- `dist/aws_cost_anomaly_triage-0.1.0-py3-none-any.whl` (wheel, ~14.6KB)
-
-The wheel bundles `SKILL.md` + 6 resource markdown files via
-`[tool.setuptools.package-data]` in `pyproject.toml`.
-
-Login + upload:
+Expected: no approved match and no new installed skill.
+Also attempt a governance read using the consumer identity:
 
 ```bash
-aws codeartifact login --tool twine \
-  --domain skills-demo --repository skills-prod --region us-east-1
-
-python3 -m twine upload --repository codeartifact dist/*
+AWS_PROFILE=consumer aws agent-registry-control get-registry-record \
+  --registry-id "$AGENT_REGISTRY_ARN" --record-id RECORD_ID --region us-east-1
 ```
 
-Verify:
+Expected: access denied. The consumer policy grants no governance reads.
+If it succeeds, inspect other policies/resource policies attached to that identity.
+
+## 5. Approve as the curator
+
+Inspect the full record, skill SOP and supporting files before approving:
 
 ```bash
-aws codeartifact list-package-versions \
-  --domain skills-demo --repository skills-prod \
-  --format pypi --package aws-cost-anomaly-triage --region us-east-1
+AWS_PROFILE=curator python scripts/03_approve_skill.py \
+  --name aws-cost-anomaly-triage --version 0.1.0 \
+  --reason 'Reviewed SOP, supporting resources, publisher and wheel digest'
 ```
 
-You should see version `0.1.0`, status `Published`, origin `INTERNAL`.
+The curator script only approves `PENDING_APPROVAL`; it does not submit drafts.
+This separation is enforced with separate IAM policies, not merely profile names.
 
-## 3. Register the skill in Agent Registry
+## 6. Consume as the reader
 
 ```bash
-cd ../scripts
-python3 02_register_skill.py
+AWS_PROFILE=consumer python scripts/04_consume_skill.py \
+  --name aws-cost-anomaly-triage --version 0.1.0 --target-dir ./demo-skills
+python scripts/05_verify_installed_skill.py ./demo-skills/aws-cost-anomaly-triage
 ```
 
-What happens:
-1. Loads `SKILL.md` raw text (frontmatter included — required by registry validation)
-2. Builds `skillDefinition` JSON pointing at the CodeArtifact PyPI package
-3. `CreateRegistryRecord` → record state `CREATING`
-4. Polls until state = `DRAFT` (~1 second)
+The consumer uses one explicit registry, server-side type/name/version filtering, and
+`BatchGetDiscoverableRegistryRecord` for full approved details. It never switches to
+`GetRegistryRecord`. After approval, allow for discovery indexing and retry a miss.
 
-Output ends with the record ARN. Note the recordId from the ARN tail.
+`--domain`, `--repository`, `--region` and optional `--domain-owner` define the trusted
+artifact location independently of the record. By default the domain owner is the registry
+owner. Cross-account artifact repositories need an explicit owner and appropriate IAM/resource policies.
 
-## 4. Submit + approve
+Only verified `skill_files/` content is copied. Package code and `postinstall.py` never run.
+To activate in Claude Code, choose `--target-dir ~/.claude/skills` after reviewing the demo.
 
-```bash
-python3 03_approve_skill.py
-```
+## 7. Negative checks and upgrades
 
-Transitions: `DRAFT` → `PENDING_APPROVAL` → `APPROVED`.
+- Change a copied `SKILL.md`, add a file or delete a resource: the local verifier must fail.
+- Reinstall the same unchanged release: succeeds without replacing the tree or changing provenance.
+- Try to overwrite a modified or different release: fails; review and remove the old tree explicitly first.
+- A replaced wheel at the same name/version must fail the digest check before extraction.
+  Do not delete/re-publish production package versions to perform this experiment; use an isolated demo.
+- An unapproved, deprecated, inaccessible or changed record must fail discovery/recheck.
+- A record pointing at a different repository must fail even when the caller has broader AWS permissions.
+- For two-team isolation, test both registry discovery and artifact download using the other team's identity.
 
-In a real org, the publisher submits and a separate IAM principal
-(curator) approves. The script does both for demo. Use IAM Conditions
-on `bedrock-agentcore:UpdateRegistryRecordStatus` to enforce the
-separation of duty.
+Version upgrades require a new package/record version, independent approval, and an explicit local
+replacement decision. This blueprint does not silently choose the first semantic match or latest package.
 
-## 5. Wait for the search index
+## Validation status
 
-After APPROVED, the semantic index takes **15–30 seconds** to pick up
-the record. This is timing data the AWS docs don't mention but it
-matters for UX in any consumer flow. Poll with:
-
-```bash
-python3 -c "
-import boto3, time
-ctrl = boto3.client('bedrock-agentcore-control', region_name='us-east-1')
-data = boto3.client('bedrock-agentcore', region_name='us-east-1')
-arns = [r['registryArn'] for r in ctrl.list_registries()['registries']]
-for _ in range(10):
-    hits = data.search_registry_records(registryIds=arns, searchQuery='cost anomaly').get('registryRecords', [])
-    print(len(hits), 'hits')
-    if hits: break
-    time.sleep(10)
-"
-```
-
-## 6. Run the consumer
-
-```bash
-python3 04_consume_skill.py
-```
-
-This script demonstrates the full end-to-end consumer path:
-
-1. `search_registry_records(query="cost anomaly triage")` — finds 1 hit
-2. `get_registry_record` — pulls the full skillDefinition
-3. Parses `packages[0]` to learn the PyPI package + version
-4. Reads `_meta.com.example.codeartifact.indexUrl`
-5. `aws codeartifact login --tool pip` — refreshes the 12h pip token
-6. Creates a fresh venv, `pip install aws-cost-anomaly-triage==0.1.0`
-7. Runs the `install-aws-cost-anomaly-triage` console script
-8. Final tree: `~/.claude/skills/aws-cost-anomaly-triage/SKILL.md` + `resources/*`
-
-After this completes, **Claude Code's plugin loader picks up the new
-directory automatically.** Open Claude Code (or send a fresh prompt
-in an existing session) and the skill appears in the Skill list with
-the description from frontmatter.
-
-## Verification — the proof point
-
-The most concrete evidence the demo works: the system reminder Claude
-Code emits on every prompt includes available skills. After running
-step 6, that list includes `aws-cost-anomaly-triage` alongside built-in
-skills, exactly the same listing format. **The agent doesn't know
-the skill came from a private AWS-hosted registry — it just sees a
-local skill with a triggering description.**
-
-## Timing summary (real numbers from a fresh run)
-
-| Step | Time |
-|---|---|
-| `cdk deploy --all` | ~2-3 min |
-| `python3 -m build` | < 5 s |
-| `twine upload` | < 5 s (14.6KB wheel) |
-| `create_registry_record` → DRAFT | < 2 s |
-| Submit → PENDING_APPROVAL | < 2 s |
-| Approve → APPROVED | < 2 s |
-| **APPROVED → search-discoverable** | **15–30 s** |
-| `pip install` from CodeArtifact | < 3 s |
-| Postinstall copy | < 1 s |
-| **Total fresh-deploy wall time** | **~5 min** |
-
-## Cleanup
-
-```bash
-# remove the local skill (optional)
-rm -rf ~/.claude/skills/aws-cost-anomaly-triage
-
-# tear down the AWS infra
-cd cdk
-npx cdk destroy --all
-```
-
-`cdk destroy` will fail if the registry has un-deleted records or
-the CodeArtifact repo has un-deleted packages — the CDK stacks
-include cleanup helpers, but you can also do it manually:
-
-```bash
-# delete record + registry first
-python3 -c "
-import boto3
-c = boto3.client('bedrock-agentcore-control', region_name='us-east-1')
-for r in c.list_registries()['registries']:
-    if r['name'] == 'skills-demo-registry':
-        rid = r['registryArn'].rsplit('/', 1)[-1]
-        for rec in c.list_registry_records(registryId=rid).get('registryRecords', []):
-            c.delete_registry_record(registryId=rid, recordId=rec['recordId'])
-        c.delete_registry(registryId=rid)
-"
-
-# then CodeArtifact
-aws codeartifact delete-repository --domain skills-demo --repository skills-prod --region us-east-1
-aws codeartifact delete-domain --domain skills-demo --region us-east-1
-```
-
-## Common errors
-
-| Error | Cause | Fix |
-|---|---|---|
-| `ConflictException: Registry is not in READY state: CREATING` | Calling `ListRegistryRecords` too soon after `CreateRegistry` | Wait until the registry's status is `READY` (~30s) |
-| `Unknown parameter "approvalConfig"` | API parameter is `approvalConfiguration.autoApproval`, not `approvalConfig.approvalType` | Use the correct schema; introspect with `client.meta.service_model.operation_model('CreateRegistry').input_shape.members` |
-| `KeyError: 'registryRecordArn'` | Wrong key name | The output is `recordArn`, not `registryRecordArn` |
-| Empty search hits right after APPROVED | Index not refreshed | Wait 15-30s, poll |
-| `botocore.exceptions.NoCredentialsError` | EC2 role missing | See `docs/05-auth-placeholder.md` |
-
-→ Next: [dynamic discovery via the MCP endpoint](./04-dynamic-discovery.md)
+The 2026-09-09 implementation was checked with Boto3/Botocore 1.43.90 request models and
+Stubber-backed offline consumption, a locally built wheel, tamper/drift scenarios, TypeScript
+compilation and CDK synthesis. No AWS resources were deployed during that implementation.
+The live positive and negative steps above remain the deployment acceptance checklist.

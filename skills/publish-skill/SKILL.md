@@ -6,14 +6,18 @@ description: |
   the company's private AWS Agent Registry + CodeArtifact. Walks
   build → CodeArtifact upload → CreateRegistryRecord → optional
   submit-for-approval. Requires AWS credentials with
-  codeartifact:PublishPackageVersion and bedrock-agentcore:Create*
-  on the target registry. Refuses to run if those permissions are
-  absent. Triggers on phrases like "publish this skill", "register
+  codeartifact:PublishPackageVersion and agent-registry:CreateRegistryRecord
+  on the target registry. AWS rejects unauthorized publication.
+  Triggers on phrases like "publish this skill", "register
   this in our skill registry", "把这个 skill 发布出去", "推到 skills
   registry".
 ---
 
 # Publishing a skill to the private registry
+
+Requires Python 3.11+ and the shared blueprint library installed in the active interpreter:
+`python -m pip install -e '.[publish]'` from the cloned repository. Copying this skill
+directory alone does not install that dependency. The current runbook is authoritative.
 
 This is the meta-skill that publishes other skills. It is intentionally
 **limited in scope**: it assumes the project layout that this
@@ -71,23 +75,14 @@ codeartifact_repository = "skills-prod"
 registry_name = "skills-demo-registry"
 ```
 
-If the file is absent or a field is missing, the user must pass
-the value as a CLI flag. Refuse to proceed if any of `--domain`,
-`--repository`, `--registry` is unresolved.
+If the file is absent, the script uses the demo defaults shown above.
+Confirm that these are the intended destinations before publishing; pass explicit flags otherwise.
 
 ## Permissions
 
-This skill cannot bypass IAM. The script verifies:
-
-1. AWS credentials are present (`sts:GetCallerIdentity`)
-2. The required CLIs are on PATH (`aws`, `twine`)
-
-But it does NOT verify upfront that the principal has every
-required permission — that would require listing IAM, which most
-publishers don't have. Instead, it lets `twine upload` /
-`CreateRegistryRecord` fail naturally and surfaces the error.
-This is intentional: failures are clearer than a synthetic
-permission audit.
+This skill cannot bypass IAM. Dry-run only checks local metadata and makes no AWS calls.
+During real publication, AWS enforces authorization. Tokens are passed to Twine through its
+environment, never persisted in pip configuration. The publisher role must not approve records.
 
 For the full permission set required to run this skill end-to-end,
 see [docs/09-publishing-iam.md](../../docs/09-publishing-iam.md).
@@ -99,9 +94,9 @@ Two safeguards by default:
 - **No auto-submit.** The script creates the record and stops at
   `DRAFT`. The author reviews via console / `get-registry-record`
   before running with `--auto-submit` to advance to `PENDING_APPROVAL`.
-- **No update of existing records.** If a record with the same
-  name already exists, the script exits and tells the author to
-  bump the version in `pyproject.toml`.
+- **No update of existing content.** Identical name/version metadata is reused;
+  different content at the same version is rejected. A new version may use the same name.
+  Retry an already-uploaded wheel with `--wheel ... --skip-upload`; its digest is still checked.
 
 If the user explicitly says "submit it for approval" / "go all the
 way", pass `--auto-submit`. Otherwise leave the conservative default.
