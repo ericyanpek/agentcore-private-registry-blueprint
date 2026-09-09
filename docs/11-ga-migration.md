@@ -16,7 +16,7 @@ Existing Preview data still needs a separate migration; changing code does not m
 |---|---|
 | Code targets | GA (`agent-registry`, `agent-registry-control`) |
 | Verified against GA SDK | Boto3/Botocore 1.43.90 request models and offline Stubber checks |
-| Live GA deployment verified | Not yet; do not inherit the Preview verification claim |
+| Live GA deployment verified | Core publish/approve/consume flow in `us-east-1`, 2026-09-09; [coverage and exclusions](13-live-validation.md) |
 | Docs updated for GA | README and the primary publishing/consumption guides |
 
 **Historical blocker, resolved.** On 2026-08-04 the GA service clients did not exist
@@ -30,8 +30,9 @@ agent-registry-control         no
 ```
 
 Both GA clients are now present in the pinned SDK. Scripts, record schemas,
-IAM reader policies and MCP instructions have been migrated. Live deployment
-acceptance remains separate from the offline checks.
+IAM reader policies and MCP instructions have been migrated. Core live deployment
+acceptance has now passed separately from the offline checks; Preview data migration and
+Cognito login were not part of that run.
 
 **If you have existing Preview data**: read the
 [hard cutoff](#the-hard-cutoff-for-new-accounts) section first. Do not delete the

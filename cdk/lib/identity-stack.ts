@@ -165,7 +165,7 @@ export class IdentityStack extends cdk.Stack {
           },
           'sts:AssumeRoleWithWebIdentity',
         ),
-        description: `Skills reader role — ${logicalId}`,
+        description: 'Skills reader role',
         maxSessionDuration: cdk.Duration.hours(1),
       });
 

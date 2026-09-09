@@ -19,7 +19,7 @@ Review [CDK lifecycle and migration](../cdk/README.md), then:
 cd cdk
 npm ci
 npx cdk synth
-npx cdk diff --all
+npx cdk diff
 npx cdk deploy --all
 cd ..
 export AGENT_REGISTRY_ARN='arn:aws:agent-registry:us-east-1:YOUR_ACCOUNT_ID:registry/YOUR_REGISTRY_ID'
@@ -133,7 +133,10 @@ replacement decision. This blueprint does not silently choose the first semantic
 
 ## Validation status
 
-The 2026-09-09 implementation was checked with Boto3/Botocore 1.43.90 request models and
-Stubber-backed offline consumption, a locally built wheel, tamper/drift scenarios, TypeScript
-compilation and CDK synthesis. No AWS resources were deployed during that implementation.
-The live positive and negative steps above remain the deployment acceptance checklist.
+On 2026-09-09, native CloudFormation deployment and the core positive/negative flow passed
+live checks in `us-east-1`, using separate publisher, curator and consumer IAM roles.
+This includes pre-approval rejection, cross-team denial, approved consumption, local drift,
+remote same-version wheel substitution and deprecation. Boto3/Botocore 1.43.90 contract checks,
+17 offline scenarios, TypeScript compilation and CDK synthesis also passed.
+See [the validation record](13-live-validation.md) for dependency fixes, cleanup and untested areas.
+Repeat these acceptance checks in your own deployment; they are not a production-security certification.

@@ -6,7 +6,7 @@ Requires Node.js 20+ and configured deployment credentials.
 npm ci
 npx tsc --noEmit
 npx cdk synth --strict
-npx cdk diff --all
+npx cdk diff
 npx cdk deploy --all
 ```
 
@@ -16,14 +16,34 @@ npx cdk deploy --all
 - `AgentRegistryStack`: native `AWS::AgentRegistry::Registry`, IAM authorization, manual approval.
 - Optional `IdentityStack`: temporary-credential access with explicit team registry/repository mappings.
 
-The pinned CDK dependency does not contain an Agent Registry L1, so `RegistryStack` uses
-`CfnResource` for the **native CloudFormation resource type**, not `AwsCustomResource`.
+`RegistryStack` uses the typed `aws-agentregistry.CfnRegistry` L1 from CDK 2.268.0
+for the **native CloudFormation resource type**, not `AwsCustomResource`.
 No Lambda/SDK custom resource is needed to create the Registry.
 `AuthorizerType` is a top-level CloudFormation property; do not copy the SDK's nested shape into CFN.
 
 Key outputs are `RegistryArn`, `RegistryId`, `McpEndpoint`, `DomainName`, and `RepositoryName`.
 Use `RegistryArn` as `AGENT_REGISTRY_ARN` for scripts. For custom context values, pass matching
 `--domain`, `--repository`, `--region`, and `--registry`/`--registry-id` to the scripts.
+
+## Isolated deployment
+
+Use a unique stack prefix **and** resource names to avoid touching existing demo stacks:
+
+```bash
+RUN="registry-test-$(date -u +%Y%m%d-%H%M%S)"
+ASSEMBLY="$(mktemp -d)"
+npx cdk synth -c stackPrefix="$RUN" -c domainName="$RUN" \
+  -c repositoryName=skills-test -c registryName="$RUN" --output "$ASSEMBLY"
+npx cdk diff --app "$ASSEMBLY"
+npx cdk deploy --all --app "$ASSEMBLY" --outputs-file "$ASSEMBLY/outputs.json"
+```
+
+`stackPrefix` is optional; omitting it preserves existing stack names. Do not add or change
+it when updating an existing deployment: that selects different stacks, not a rename.
+The prefix must start with a letter and contain at most 50 letters, digits or hyphens.
+The cloud assembly keeps deployment and cleanup pointed at the same names:
+`npx cdk destroy --all --app "$ASSEMBLY"` after explicitly cleaning retained registries.
+The optional Cognito stack is not enabled by this isolated core-path example.
 
 ## Preview upgrades require a separate migration
 
@@ -61,4 +81,6 @@ npx cdk synth -c enableIdentity=true -c enableDefaultReader=true
 has no catalog or artifact access. For team mappings, supply both `groupRepoMap` and
 `groupRegistryMap`; see [end-user access](../docs/10-end-user-access.md).
 
-Validation performed for this revision is offline compilation/synthesis, not a live deployment.
+Core stacks were deployed and the scoped-role publish/approve/consume flow was live-tested
+in `us-east-1` on 2026-09-09. The optional Cognito stack has only compilation/synthesis coverage
+in this run. See [validation details](../docs/13-live-validation.md).

@@ -5,9 +5,10 @@
 基于 **AWS Agent Registry GA + CodeArtifact** 的企业私有 Skills 分发与可信消费蓝图。
 Registry 管目录、发现和审批；CodeArtifact 存 wheel；本项目把“已批准记录”与“最终安装的内容”绑定起来。
 
-**状态（2026-09-09）**：代码已迁移到 `agent-registry` namespace。已完成离线 SDK 合约、
-制品完整性和 CDK 验证；**本次 GA 改动尚未在真实 AWS 账号完成端到端部署验证**。
-不要将原 Preview 演示的验证结果视为 GA 部署验证。
+**状态（2026-09-09）**：已在 `us-east-1` 完成 GA 原生 CloudFormation 部署及
+“独立发布者 → 独立审批者 → 最小权限消费者”真实闭环，验证跨团队拒绝访问、制品篡改拦截与弃用。
+CDK 依赖的 3 项高危告警已修复，`npm audit` 为 0。Cognito 登录链路尚未进行本轮实测；
+覆盖范围见 [AWS 实测记录](docs/13-live-validation.md)。
 
 ## 闭环
 
@@ -41,7 +42,7 @@ python -m pip install -e '.[publish]'
 cd cdk
 npm ci
 npx cdk synth
-npx cdk diff --all
+npx cdk diff
 npx cdk deploy --all
 cd ..
 ```
@@ -98,6 +99,7 @@ python scripts/05_verify_installed_skill.py ./demo-skills/aws-cost-anomaly-triag
 - [IAM 分工](docs/09-publishing-iam.md) · [终端用户与团队隔离](docs/10-end-user-access.md)
 - [Preview 数据迁移](docs/11-ga-migration.md) · [制品完整性](docs/12-record-artifact-integrity.md)
 - [CDK 与资源保留](cdk/README.md) · [扩展资源示例](examples/README.md)
+- [AWS 实测与依赖安全修复](docs/13-live-validation.md)
 
 `docs/02、05、06、07、08` 保留了调研过程和 Preview 设计；其中历史 API/安装命令不作为当前操作指南。
 原 Preview namespace 于 2026-09-17 关闭；已有数据不会自动迁移，先看迁移说明。

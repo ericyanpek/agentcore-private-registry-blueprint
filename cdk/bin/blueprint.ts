@@ -6,6 +6,11 @@ import { RegistryStack } from '../lib/registry-stack';
 import { IdentityStack } from '../lib/identity-stack';
 
 const app = new cdk.App();
+const stackPrefix = app.node.tryGetContext('stackPrefix') ?? '';
+if (stackPrefix && !/^[A-Za-z][A-Za-z0-9-]{0,49}$/.test(stackPrefix)) {
+  throw new Error('stackPrefix must start with a letter and contain at most 50 letters, digits or hyphens');
+}
+const stackId = (name: string): string => stackPrefix ? `${stackPrefix}-${name}` : name;
 
 const region = app.node.tryGetContext('blueprintRegion') ?? 'us-east-1';
 const env = {
@@ -13,7 +18,7 @@ const env = {
   region,
 };
 
-const ca = new CodeArtifactStack(app, 'CodeArtifactStack', {
+const ca = new CodeArtifactStack(app, stackId('CodeArtifactStack'), {
   env,
   domainName: app.node.tryGetContext('domainName') ?? 'skills-demo',
   repositoryName: app.node.tryGetContext('repositoryName') ?? 'skills-prod',
@@ -21,7 +26,7 @@ const ca = new CodeArtifactStack(app, 'CodeArtifactStack', {
     'CodeArtifact PyPI repo backing the private skills blueprint',
 });
 
-const registry = new RegistryStack(app, 'AgentRegistryStack', {
+const registry = new RegistryStack(app, stackId('AgentRegistryStack'), {
   env,
   registryName:
     app.node.tryGetContext('registryName') ?? 'skills-demo-registry',
@@ -46,7 +51,7 @@ if (enableIdentity) {
     : groupRegistryMapRaw ?? {};
   const enableDefaultReader = app.node.tryGetContext('enableDefaultReader') === 'true'
     || app.node.tryGetContext('enableDefaultReader') === true;
-  new IdentityStack(app, 'IdentityStack', {
+  new IdentityStack(app, stackId('IdentityStack'), {
     env,
     codeArtifactDomain: ca.domainName,
     groupRepoMap,

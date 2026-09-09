@@ -6,9 +6,11 @@ Private skill distribution and verified consumption using **AWS Agent Registry G
 Registry owns catalog discovery and approval; CodeArtifact stores wheels; this blueprint binds approved
 metadata to the bytes activated on a consumer's machine.
 
-**Status — 2026-09-09:** executable code targets the `agent-registry` namespace. SDK contract checks,
-offline integrity scenarios and CDK validation are complete. **This GA revision has not been deployed
-and verified end to end in a live AWS account.** Earlier Preview verification does not establish GA compatibility.
+**Status — 2026-09-09:** native CloudFormation deployment and the GA publisher → curator → consumer
+flow passed live checks in `us-east-1`, using separate, scoped IAM roles. Cross-team access denial,
+artifact substitution rejection and deprecation were also checked. The three high-severity npm
+findings are fixed; `npm audit` reports zero. Cognito login was not live-tested in this run.
+See [validation coverage](docs/13-live-validation.md).
 
 ## Flow
 
@@ -34,7 +36,7 @@ python -m pip install -e '.[publish]'
 cd cdk
 npm ci
 npx cdk synth
-npx cdk diff --all
+npx cdk diff
 npx cdk deploy --all
 cd ..
 export AGENT_REGISTRY_ARN='arn:aws:agent-registry:us-east-1:YOUR_ACCOUNT_ID:registry/YOUR_REGISTRY_ID'
